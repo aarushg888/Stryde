@@ -1,0 +1,70 @@
+{
+  "images_total_raw": 11511,
+  "images_after_md5": 11511,
+  "images_after_phash": 9993,
+  "duplicates_removed": 1518,
+  "instances_per_class_total": {
+    "curb_ramp": 5491,
+    "crosswalk": 4504,
+    "tactile_paving": 1803,
+    "stairs_steps": 5056,
+    "ramp": 143
+  },
+  "instances_per_class_split": {
+    "train": {
+      "curb_ramp": 4406,
+      "crosswalk": 3608,
+      "stairs_steps": 4052,
+      "tactile_paving": 1444,
+      "ramp": 115
+    },
+    "val": {
+      "curb_ramp": 556,
+      "crosswalk": 448,
+      "stairs_steps": 490,
+      "tactile_paving": 184,
+      "ramp": 14
+    },
+    "test": {
+      "curb_ramp": 529,
+      "crosswalk": 448,
+      "stairs_steps": 514,
+      "tactile_paving": 175,
+      "ramp": 14
+    }
+  },
+  "rare_classes_flagged": [
+    "ramp"
+  ],
+  "per_source_instances": {
+    "sidewalksidewalk_v10": {
+      "curb_ramp": 3428,
+      "crosswalk": 3274,
+      "tactile_paving": 1459
+    },
+    "logan_intersections_v1": {
+      "curb_ramp": 1619,
+      "crosswalk": 855
+    },
+    "combined_proj_v2": {
+      "tactile_paving": 1130,
+      "crosswalk": 1291,
+      "curb_ramp": 1260
+    },
+    "wheelmap": {
+      "stairs_steps": 5056,
+      "ramp": 143
+    }
+  },
+  "split_counts": {
+    "train": 7994,
+    "val": 1000,
+    "test": 999
+  },
+  "oversample": {
+    "classes": [
+      "ramp"
+    ],
+    "images_duplicated": 165
+  }
+}
