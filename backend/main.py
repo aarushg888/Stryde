@@ -110,7 +110,7 @@ def a_star(start, goal, graph, heuristic=heuristic):
         if (type == "crossing" or type == "crosswalk") and node_ll:
             accessibility_cost += 2+4*graph[1][(s,a)] + get_incident_score(node_ll)
         if type == "unknown":
-            accessibility_cost += 10 + get_incident_score(node_ll)
+            accessibility_cost += 300 + get_incident_score(node_ll)
         new_pc = pc + graph[1][(s,a)] + accessibility_cost
         new_tc = new_pc + heuristic(node_ll,goal_ll)
         if a not in explored or new_tc < explored[a][1]:
