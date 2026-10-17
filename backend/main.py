@@ -41,8 +41,8 @@ def _load_graph():
     data = REPO / "data" / "router_graph"
     from backend.ml.aerial.router_graph import load
     graphs, meta = load(str(data))
-    adjacency, tubes = graphs
-    return [adjacency, tubes], meta
+    print(graphs[2])
+    return graphs, meta
 
 
 def heuristic(node, goal, graph) -> float:
