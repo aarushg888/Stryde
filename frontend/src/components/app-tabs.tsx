@@ -1,6 +1,5 @@
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { useColorScheme } from 'react-native';
-
+import { Tabs } from 'expo-router';
+import { useColorScheme, Image } from 'react-native';
 import { Colors } from '@/constants/theme';
 
 export default function AppTabs() {
@@ -8,25 +7,77 @@ export default function AppTabs() {
   const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
 
   return (
-    <NativeTabs
-      backgroundColor={colors.background}
-      indicatorColor={colors.backgroundElement}
-      labelStyle={{ selected: { color: colors.text } }}>
-      <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Map</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
+    <Tabs
+      screenOptions={{
+        headerShown: false, // Hides the default top action header bar
+        tabBarBackgroundColor: colors.background,
+        tabBarActiveTintColor: colors.text,
+        tabBarInactiveTintColor: colors.backgroundElement,
+        tabBarStyle: {
+          backgroundColor: colors.background,
+          borderTopWidth: 0, // Keeps bottom menu transition flat and clean
+        },
+      }}
+    >
+      {/* 1. Map Main Screen */}
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Map',
+          tabBarIcon: ({ color }) => (
+            <Image
+              source={require('@/assets/images/tabIcons/home.png')}
+              style={{ width: 24, height: 24, tintColor: color }}
+              resizeMode="contain"
+            />
+          ),
+        }}
+      />
 
-      <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-    </NativeTabs>
+      {/* 2. Routes Management */}
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: 'Routes',
+          tabBarIcon: ({ color }) => (
+            <Image
+              source={require('@/assets/images/tabIcons/explore.png')}
+              style={{ width: 24, height: 24, tintColor: color }}
+              resizeMode="contain"
+            />
+          ),
+        }}
+      />
+
+      {/* 3. Hazards Safety Screen */}
+      <Tabs.Screen
+        name="hazards"
+        options={{
+          title: 'Hazards',
+          tabBarIcon: ({ color }) => (
+            <Image
+              source={require('@/assets/images/tabIcons/explore.png')}
+              style={{ width: 24, height: 24, tintColor: color }}
+              resizeMode="contain"
+            />
+          ),
+        }}
+      />
+
+      {/* 4. User System Preferences */}
+      <Tabs.Screen
+        name="preferences"
+        options={{
+          title: 'Preferences',
+          tabBarIcon: ({ color }) => (
+            <Image
+              source={require('@/assets/images/tabIcons/explore.png')}
+              style={{ width: 24, height: 24, tintColor: color }}
+              resizeMode="contain"
+            />
+          ),
+        }}
+      />
+    </Tabs>
   );
 }
