@@ -6,14 +6,14 @@
 //  2. The LAN IP the phone reached Metro via (Expo manifest hostUri), so a
 //     default `npx expo start` works on physical devices with zero setup
 //  3. localhost (simulator / web)
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
 
-const DEV_FALLBACK = 'http://localhost:8100';
+const DEV_FALLBACK = "http://localhost:8100";
 
 function resolveBaseUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_URL;
-  if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/+$/, '');
-  const host = Constants.expoConfig?.hostUri?.split(':')[0];
+  if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/+$/, "");
+  const host = Constants.expoConfig?.hostUri?.split(":")[0];
   if (host && /^\d+\.\d+\.\d+\.\d+$/.test(host)) return `http://${host}:8100`;
   return DEV_FALLBACK;
 }
@@ -42,7 +42,7 @@ export type RouteResult = {
   cost: number; // network meters (tubes only)
   total_cut_m: number; // including the two snaps
   geometry: [number, number][]; // [lat, lng] — polyline coordinates
-  graph: { nodes: number; tubes: number };
+  // graph: { nodes: number; tubes: number };
 };
 
 export type Health = {
@@ -63,7 +63,8 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
   } catch {
     throw new Error(
       `Cannot reach the backend at ${BASE_URL}. Start it: uvicorn backend.main:app --host 0.0.0.0 --port 8100. ` +
-      "On a physical phone, use your computer's LAN IP: EXPO_PUBLIC_API_URL=http://<mac-ip>:8100");
+        "On a physical phone, use your computer's LAN IP: EXPO_PUBLIC_API_URL=http://<mac-ip>:8100",
+    );
   }
   if (!res.ok) await parseError(res);
   return res;
@@ -84,7 +85,7 @@ export const api = {
   baseUrl: BASE_URL,
 
   async health(): Promise<Health> {
-    const res = await request('/health');
+    const res = await request("/health");
     return res.json();
   },
 
@@ -94,17 +95,26 @@ export const api = {
     return res.json();
   },
 
-  async coverage(area: 'demo' | 'test' | 'nova'): Promise<GeoJSON.FeatureCollection> {
+  async coverage(
+    area: "demo" | "test" | "nova",
+  ): Promise<GeoJSON.FeatureCollection> {
     const res = await request(`/coverage?area=${area}`);
     const body = (await res.json()) as { geojson: GeoJSON.FeatureCollection };
     return body.geojson;
   },
 
-  async detectHazard(fileUri: string, conf = 0.25): Promise<{ detections: Detection[] }> {
+  async detectHazard(
+    fileUri: string,
+    conf = 0.25,
+  ): Promise<{ detections: Detection[] }> {
     const data = new FormData();
-    data.append('conf', String(conf));
-    data.append('file', { uri: fileUri, name: 'hazard.jpg', type: 'image/jpeg' } as unknown as Blob);
-    const res = await request('/detect', { method: 'POST', body: data });
+    data.append("conf", String(conf));
+    data.append("file", {
+      uri: fileUri,
+      name: "hazard.jpg",
+      type: "image/jpeg",
+    } as unknown as Blob);
+    const res = await request("/detect", { method: "POST", body: data });
     return res.json();
   },
 };

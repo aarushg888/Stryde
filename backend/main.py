@@ -112,6 +112,7 @@ def a_star(start, goal, graph, heuristic=heuristic):
 
 
 GRAPH, _META = _load_graph()
+latlngs = _META.get("node_latlng") or {}
 NO_DATA = """hazard detector is warming up — model weights are still training
 (run backend/ml/street/train_colab.ipynb, then drop best.pt into
 backend/ml/street/weights/)."""
@@ -129,7 +130,6 @@ app.add_middleware(
 
 def _nearest_nodes(lat, lng, k: int = 6):
     """k nearest graph nodes to a lat,lng (haversine over node coords)."""
-    latlngs = _META.get("node_latlng") or {}
     if not latlngs:
         raise HTTPException(status_code=400, detail="graph has no coordinates; pass a node id")
     scored = []
@@ -195,7 +195,6 @@ def search(start: str = Query(...), goal: str = Query(...)):
     s_goal = goal.strip()
     s_cands = _resolve_candidates(s_start)
     g_cands = _resolve_candidates(s_goal)
-    latlngs = _META.get("node_latlng") or {}
 
     # The aerial graph is fragmented into sidewalk components; a single nearest
     # node per side can easily pair across components. Try the nearest few
@@ -260,7 +259,6 @@ def search(start: str = Query(...), goal: str = Query(...)):
         "ratio": round(round(cost + snap_connect, 1) / straight_m, 3)
                   if straight_m and straight_m > 0 else None,
         "geometry": geometry,
-        "graph": {"nodes": _META.get("nodes"), "tubes": _META.get("tubes")},
     }
 
 
@@ -359,8 +357,6 @@ def health():
     return {
         "ok": True,
         "weights": _weights_status(),
-        "graph": {"nodes": _META.get("nodes"), "tubes": _META.get("tubes"),
-                  "fallback": bool(_META.get("fallback"))},
         "coverage": [a for a, rel in _COVERAGE.items() if (REPO / rel).exists()],
     }
 
