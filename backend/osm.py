@@ -29,7 +29,7 @@ def classify_edge(data):
 
     if footway == "sidewalk":
         return "sidewalk"
-
+    print(footway, path)
     return "unknown"
 def distance(n1,n2):
     y1,x1 = G.nodes[n1]["y"],G.nodes[n1]["x"]
