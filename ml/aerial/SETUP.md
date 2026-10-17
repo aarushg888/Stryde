@@ -32,7 +32,18 @@ Measured local runtimes (MPS, torch 2.14.1, Apple Silicon):
 |---|---|---|---|---|
 | Boston example | 96 | 256 | CPU < 1 min | 34.5 s |
 | DC test area (0.08 km²) | 64 | 512 | CPU < 1 min | 34.5 s |
-| DC demo (~1 km²) | 400 | 512 | CPU < 1 min | 114 s |
+| DC demo (~1 km²) | 400 | 512 | CPU < 2 min | 121 s (regenerated run) |
+| NoVA Clarendon (~1 km², VA) | 400 | 256 | CPU < 2 min | 47.8 s |
+
+## Local patch required for Virginia imagery
+
+Upstream tile2net points at a dead host: `gismaps.vdem.virginia.gov`
+(NXDOMAIN as of 2026-10). The local clone has an UNCOMMITTED one-line patch in
+`backend/tile2net/src/tile2net/raster/source.py` (`Virginia.server`)
+→ `https://vginmaps.vdem.virginia.gov/arcgis/rest/services/
+VBMP_Imagery/MostRecentImagery_WGS/MapServer`. If you re-clone
+tile2net, re-apply this patch or Virginia `generate` fails immediately;
+DC works unpatched.
 
 DC/VA sources auto-select 512 px base tiles; Boston uses 256 px — parser must
 not assume a single size.
@@ -152,6 +163,14 @@ ml/aerial/.venv/bin/python ml/aerial/make_previews.py \
   --polygons data/demo_area_polygons.geojson \
   --bbox "38.9182,-77.0380,38.9092,-77.0270" \
   --name demo_area --out ml/aerial/previews
+
+# 6) graph QA + sampled new-edge map (per area)
+ml/aerial/.venv/bin/python ml/aerial/connectivity.py \
+  --inferred data/demo_area_inferred.geojson --label demo --json
+ml/aerial/.venv/bin/python ml/aerial/qa_sample.py \
+  --new-edges ml/aerial/qa/new_edges_demo_all.geojson \
+  --out-prefix ml/aerial/qa/new_edges_sample --n 25 --seed 7 \
+  --bbox "38.9182,-77.0380,38.9092,-77.0270"
 ```
 
 ## Colab / Kaggle notebook

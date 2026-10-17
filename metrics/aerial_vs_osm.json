@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-10-17T01:07:41+00:00",
+  "generated_utc": "2026-10-17T02:31:27+00:00",
   "region": "washington-dc",
   "demo_bbox": [
     38.9182,
@@ -7,8 +7,6 @@
     38.9092,
     -77.027
   ],
-  "osm_sidewalk_ways": 597,
-  "tile2net_lines": 3514,
   "in_training_cities": true,
   "training_cities": [
     "Boston, MA",
@@ -16,11 +14,34 @@
     "DC",
     "New York, NY"
   ],
-  "osm_sidewalk_crossing_length_m": 33068.71084283713,
-  "tile2net_sidewalk_crosswalk_length_m": 40310.93098431585,
-  "osm_length_within_3m_of_tile2net_m": 27234.54777652969,
-  "tile2net_length_without_osm_within_5m_m": 13735.081266274146,
-  "osm_recall_proxy_share": 0.8236,
-  "tile2net_new_edge_share": 0.3407,
-  "caveat": "OpenStreetMap sidewalk data is incomplete and is not ground truth; these are proxy metrics, not accuracy measurements."
+  "osm_groups": {
+    "footway_sidewalk_tagged": {
+      "count": 338,
+      "length_m": 29664.7,
+      "recall_within_3m_share": 0.8094
+    },
+    "footway_untyped": {
+      "count": 0,
+      "length_m": 0.0,
+      "recall_within_3m_share": null
+    },
+    "footway_crossing": {
+      "count": 259,
+      "length_m": 3404.0,
+      "recall_within_3m_share": 0.9494
+    }
+  },
+  "roads_sidewalk_tagged": {
+    "count": 375,
+    "length_m": 39062.3,
+    "length_with_t2n_sidewalk_within_15m_m": 23925.4,
+    "sidewalk_recall_share": 0.6125
+  },
+  "candidate_new_edges_CANDIDATE_ONLY": {
+    "definition": "tile2net sidewalk/crosswalk/connector length with no OSM sidewalk-or-footway within 5 m; includes false positives (gutters, parking aisles, private drives) and must be human/QA verified before router use",
+    "length_m": 14159.7,
+    "share_of_tile2net": 0.3343,
+    "tile2net_total_length_m": 42350.7
+  },
+  "caveat": "OpenStreetMap sidewalk data is incomplete and not ground truth; these are proxy metrics, not accuracy. Tile2Net did not train on this region unless in_training_cities is true. candidate_new_edges is CANDIDATE-ONLY (unverified)."
 }

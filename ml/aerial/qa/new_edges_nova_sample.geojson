@@ -1,0 +1,32 @@
+{
+"type": "FeatureCollection",
+"name": "new_edges_nova_sample",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.091518296115154, 38.88664460544183 ], [ -77.091635439747151, 38.886684383793742 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.087844302007028, 38.887743490703166 ], [ -77.087910632370921, 38.887798563534382 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.08764617635515, 38.88303243846449 ], [ -77.087652022944397, 38.883234007834957 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.097718729098418, 38.881433671359389 ], [ -77.097748548462931, 38.882118451996739 ] ] } },
+{ "type": "Feature", "properties": { "kind": "crosswalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.088486393161048, 38.887986412581121 ], [ -77.08845375287811, 38.887879841189537 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.089142237928641, 38.886028710047263 ], [ -77.089122056739654, 38.885922012639924 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.092780138623496, 38.892084113486902 ], [ -77.092740539469403, 38.89209289891123 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.09378769478603, 38.881508996613704 ], [ -77.093743463940839, 38.881450742696217 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.088184972425452, 38.88771477374852 ], [ -77.088178217457994, 38.887762134082017 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.088528815462467, 38.890394955006606 ], [ -77.088564451529663, 38.890374650658558 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.089197909749842, 38.887020916418237 ], [ -77.089186487659362, 38.887018590207965 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.10135056401883, 38.883865458374295 ], [ -77.101364135742188, 38.883878427609872 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.099035639991243, 38.885553951178878 ], [ -77.099258236898393, 38.885478144657803 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.087949419780401, 38.88504295649107 ], [ -77.088076610731747, 38.885360969671446 ], [ -77.088154551029689, 38.885711279175695 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.088127008164989, 38.886963110905093 ], [ -77.088132569703419, 38.887046777649608 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.095863115640057, 38.882066998287023 ], [ -77.094972622247084, 38.882079525839757 ] ] } },
+{ "type": "Feature", "properties": { "kind": "crosswalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.087709343463146, 38.884678589789274 ], [ -77.087866215687868, 38.884669354977291 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.089237043232345, 38.887152802344993 ], [ -77.089320247394653, 38.887793612383227 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.095824329725332, 38.886602528462852 ], [ -77.095808704719957, 38.886628758836522 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.095440676393309, 38.88688274157127 ], [ -77.095467774766504, 38.886874175902769 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.101302739298973, 38.886687035303304 ], [ -77.101364135742188, 38.886686104016569 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.087682265798236, 38.890685197016772 ], [ -77.087681749368187, 38.890685046754747 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.09496929535473, 38.888248186929673 ], [ -77.094899400685222, 38.887966597938245 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.08836473447019, 38.887224114916329 ], [ -77.088357736592457, 38.887244181341465 ] ] } },
+{ "type": "Feature", "properties": { "kind": "sidewalk", "source": "ml", "confidence": null }, "geometry": { "type": "LineString", "coordinates": [ [ -77.093714420121628, 38.881622042079528 ], [ -77.093686203149943, 38.881623194985458 ] ] } }
+]
+}
