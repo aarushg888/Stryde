@@ -7,3 +7,5 @@ pandas
 scipy
 numpy
 python-multipart
+osmnx
+matplotlib

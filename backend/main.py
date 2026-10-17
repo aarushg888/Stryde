@@ -42,21 +42,14 @@ def _load_graph():
     data = REPO / "data" / "router_graph"
     from backend.ml.aerial.router_graph import load
     graphs, meta = load(str(data))
-    print(graphs[2])
     return graphs, meta
 GRAPH, _META = _load_graph()
 latlngs = _META.get("node_latlng") or {}
 KIND_COST = {"sidewalk": 0, "footpath": 0, "connector": 0, "crosswalk": 5}
 
     
-def heuristic(node, goal, type) -> float:
-    node_ll = latlngs.get(node)
-    goal_ll = latlngs.get(goal)
+def heuristic(node_ll, goal_ll) -> float:
     heuristic_cost = _haversine(node_ll,goal_ll)
-    if type is not None:
-        heuristic_cost += KIND_COST[type]
-        if type == "crosswalk" and node_ll:
-            heuristic_cost += get_incident_score(node_ll)
     return heuristic_cost
 def generate_a_star(state, explored, graph):
    path = [state]
@@ -74,7 +67,9 @@ def a_star(start, goal, graph, heuristic=heuristic):
       raise HTTPException(status_code=404, detail=f"Node '{start}' not in graph")
    if goal not in graph[0]:
       raise HTTPException(status_code=404, detail=f"Node '{goal}' not in graph")
-   h_start = heuristic(start,goal,None)
+   start_ll = latlngs.get(start)
+   goal_ll = latlngs.get(goal)
+   h_start = heuristic(start_ll,goal_ll)
    frontier, explored = [], {start: ("s",h_start)} # heuristic is total cost
    heapq.heappush(frontier,(h_start,0,None,start)) # total cost, cost to reach, state
    while len(frontier) > 0:
@@ -85,9 +80,15 @@ def a_star(start, goal, graph, heuristic=heuristic):
          path, cost = generate_a_star(s, explored, graph)
          return path, cost
       for a in graph[0][s]:  #graph[3] is neighbors
-         new_pc = pc + graph[1][(s,a)]
-         new_tc = new_pc + heuristic(a,goal,type)
-         if a not in explored or new_tc < explored[a][1]:
+        node_ll = latlngs.get(a)
+        accessibility_cost = 0
+        if type is not None:
+            accessibility_cost += KIND_COST[type]
+        if type == "crosswalk" and node_ll:
+            accessibility_cost += get_incident_score(node_ll)
+        new_pc = pc + graph[1][(s,a)] + accessibility_cost
+        new_tc = new_pc + heuristic(node_ll,goal_ll)
+        if a not in explored or new_tc < explored[a][1]:
             new_type = graph[2][(s,a)]
             explored[a] = (s,new_tc)
             heapq.heappush(frontier,(new_tc,new_pc,new_type,a))
@@ -260,19 +261,26 @@ def _coverage_file(area: str) -> pathlib.Path:
 
 
 _INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
-incident_df = pd.read_csv(_INCIDENTS_PATH)
-df_new = pd.DataFrame({
-    'x': incident_df['LATITUDE'] * 111320.0 * np.cos(np.radians(incident_df['LATITUDE'])),
-    'y': incident_df['LONGITUDE'] * 111320.0
-})
-coords = df_new[['x', 'y']].to_numpy()
-tree = KDTree(coords)
-def get_incident_score(ll, k: int = 20):
-    results = tree.query_ball_point([ll[1],ll[0]],r=k)
-    if results:
-        nearby = incident_df.iloc(results)
-        return nearby['TOTAL_VEHICLES'].sum() + (nearby['TOTAL_BICYCLES'].sum() * 40) + (nearby['TOTAL_PEDESTRIANS'].sum() * 400) +(nearby['FATAL_PEDESTRIAN'].sum() * 10**6)
-    return 0
+LAT0 = 38.9
+def to_xy(lat, lng):
+    return lat * 111320.0, lng * 111320.0 * np.cos(np.radians(LAT0))
+
+incident_df = (pd.read_csv(_INCIDENTS_PATH)
+                 .dropna(subset=['LATITUDE', 'LONGITUDE'])
+                 .reset_index(drop=True))
+x, y = to_xy(incident_df['LATITUDE'].to_numpy(), incident_df['LONGITUDE'].to_numpy())
+tree = KDTree(np.column_stack([x, y]))
+
+def get_incident_score(ll, k=20):
+    idx = tree.query_ball_point(to_xy(ll[0], ll[1]), r=k)
+    if not idx:
+        return 0
+    nearby = incident_df.iloc[idx]     
+    val = (nearby['TOTAL_VEHICLES'].sum()
+            + nearby['TOTAL_BICYCLES'].sum() * 40
+            + nearby['TOTAL_PEDESTRIANS'].sum() * 400
+            + nearby['FATAL_PEDESTRIAN'].sum() * 10**6)
+    return val
 
 
 @app.get("/coverage")
