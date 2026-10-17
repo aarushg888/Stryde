@@ -1,0 +1,6 @@
+geopandas>=1.0
+pyarrow>=14
+shapely>=2.0.7
+osmnx>=2.0
+folium>=0.16
+matplotlib>=3.8

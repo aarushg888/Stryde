@@ -1,0 +1,15 @@
+# tile2net clone + raw outputs/weights — never commit
+backend/tile2net/
+
+# local virtualenvs
+ml/aerial/.venv/
+**/.venv/
+
+# junk
+.DS_Store
+backend/tile2net/output/
+backend/tile2net/output/**
+
+# python junk
+__pycache__/
+ml/aerial/cache/
