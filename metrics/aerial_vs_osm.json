@@ -1,0 +1,26 @@
+{
+  "generated_utc": "2026-10-17T01:07:41+00:00",
+  "region": "washington-dc",
+  "demo_bbox": [
+    38.9182,
+    -77.038,
+    38.9092,
+    -77.027
+  ],
+  "osm_sidewalk_ways": 597,
+  "tile2net_lines": 3514,
+  "in_training_cities": true,
+  "training_cities": [
+    "Boston, MA",
+    "Cambridge, MA",
+    "DC",
+    "New York, NY"
+  ],
+  "osm_sidewalk_crossing_length_m": 33068.71084283713,
+  "tile2net_sidewalk_crosswalk_length_m": 40310.93098431585,
+  "osm_length_within_3m_of_tile2net_m": 27234.54777652969,
+  "tile2net_length_without_osm_within_5m_m": 13735.081266274146,
+  "osm_recall_proxy_share": 0.8236,
+  "tile2net_new_edge_share": 0.3407,
+  "caveat": "OpenStreetMap sidewalk data is incomplete and is not ground truth; these are proxy metrics, not accuracy measurements."
+}
