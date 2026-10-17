@@ -22,7 +22,7 @@ import shapely
 
 def _metric_epsg(lon: float) -> int:
     zone = math.floor((lon + 180) / 6) + 1
-    return (32600 + zone) if lon >= 0 else (32700 + zone)
+    return 32600 + zone  # northern-hemisphere zone (lengths identical either way)
 
 
 def build_graph(gdf: gpd.GeoDataFrame, tolerance: float):

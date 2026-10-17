@@ -1,0 +1,9 @@
+{
+  "epsg": 32618,
+  "nodes": 3535,
+  "tubes": 3401,
+  "weight": "length in meters (projected EPSG:32618)",
+  "tolerance_m": 2.0,
+  "closed_loop_lines": 743,
+  "source": "data/demo_area_inferred.geojson"
+}

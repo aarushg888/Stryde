@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Experimental: run tile2net local inference WITHOUT NVIDIA CUDA.
 
-Tile2Net hard-codes CUDA in its inference entry points. This runner
-monkeypatches the CUDA-only touchpoints so the same pretrained model runs on
-Apple Metal (MPS) or CPU:
+monkeypatching
 
   * torch.cuda.*            -> shims (is_available/device_count/set_device,
                                memory stats, empty_cache, FloatTensor)
@@ -31,12 +29,7 @@ import torch.nn.parallel as parallel
 
 def patch_device(device: str) -> None:
     real_cuda = torch.cuda
-
-    fake = types.ModuleType("torch.cuda")
-    # keep real package identity so `import torch.cuda._pin_memory_utils`
-    # (used by torch internals) still resolves to the actual files
-    fake.__path__ = list(real_cuda.__path__)
-    fake.__package__ = "torch.cuda"
+    fake = types.ModuleType("torch.cuda_shim")
     fake.__dict__.update(
         is_available=lambda: True,
         device_count=lambda: 1,
@@ -58,15 +51,10 @@ def patch_device(device: str) -> None:
                 setattr(fake, name, getattr(real_cuda, name))
             except Exception:
                 pass
-    sys.modules["torch.cuda"] = fake
     torch.cuda = fake
 
-    def module_cuda(self, dev=None, **k):
-        # net.cuda() without args must land on our device, not stay CPU
-        return self.to(dev if dev is not None else device)
-
     torch.Tensor.cuda = lambda self, *a, **k: self.to(device)
-    nn.Module.cuda = module_cuda
+    nn.Module.cuda = lambda self, device=None, **k: self.to(device)
 
     torch.Tensor.is_cuda = property(lambda self: True)
 
@@ -80,8 +68,6 @@ def patch_device(device: str) -> None:
 
     parallel.DataParallel = _PassthroughParallel
     parallel.DistributedDataParallel = _PassthroughParallel
-    # torch.nn re-exports DataParallel from its own namespace
-    nn.DataParallel = _PassthroughParallel
 
 
 def main() -> int:

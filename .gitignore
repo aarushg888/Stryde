@@ -12,17 +12,17 @@ backend/tile2net/output/**
 
 # python junk
 __pycache__/
-ml/aerial/cache/
+backend/ml/aerial/cache/
 
 # osmnx/overpass response cache
 /cache/
 
 # ml/street raw datasets + secrets + training runs (never committed)
-ml/street/.env
-ml/street/data/
-ml/street/runs/
-ml/street/weights/
+backend/ml/street/.env
+backend/ml/street/data/
+backend/ml/street/runs/
+backend/ml/street/weights/
 cache/
 
 # qa candidate dumps (regenerable via osm_metrics --dump-new-edges)
-ml/aerial/qa/*_all.geojson
+backend/ml/aerial/qa/*_all.geojson

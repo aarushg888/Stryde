@@ -1,0 +1,38 @@
+# ml/street class mapping — target detector classes
+# Target: 5 classes for the accessibility-aware router.
+findings:  # human-readable notes for FINAL_REPORT
+  - ramp (Zenodo) has only 143 instances -> below the 150-instance visibility threshold
+  - grab_bar (Zenodo) dropped: not used by the router
+  - pedestrian sign / stop sign / traffic light post / button / signal: dropped (not barriers)
+  - '\' (combined-proj v2 extra class): dropped (no semantic mapping; malformed class name)
+classes:
+  - name: curb_ramp
+    sources:                # source class name -> handling
+      sidewalksidewalk_v10: "curb ramp"
+      logan_intersections_v1: ["textured curb ramp", "non textured curb ramp"]
+      combined_proj_v2: "1 curb ramp"
+  - name: crosswalk
+    sources:
+      sidewalksidewalk_v10: "zebra crossing"
+      logan_intersections_v1: "cross walk"
+      combined_proj_v2: "0 cross walk"
+  - name: stairs_steps
+    sources:
+      wheelmap: ["step", "stair"]   # Zenodo steps + stairs consolidated
+  - name: tactile_paving
+    sources:
+      sidewalksidewalk_v10: "blind tracks"
+      combined_proj_v2: "4 textured paving"
+  - name: ramp
+    sources:
+      wheelmap: "ramp"   # NOT curb_ramp (spec: reuse Zenodo ramps as ramp)
+dropped:
+  wheelmap: ["grab_bar"]
+  logan_intersections_v1: ["pedestrian sign", "stop sign", "traffic light post"]
+  combined_proj_v2: ["2 pedestrian sign", "3 stop sign", "5 traffic light post", "6 button", "7 signal", "\\"]
+  sidewalksidewalk_v10: []
+image_sources:
+  sidewalksidewalk_v10: Roboflow sidewalkdetect/-sidewalk v10 (NO augmentation export)
+  logan_intersections_v1: Roboflow experiments-ypxgq/logan-intersections v1 (substitute for loganintersection2 which has 0 exportable versions)
+  combined_proj_v2: Roboflow computervision-k6ypi/combined-proj v2 (substitute for test-b4zho which has 0 exportable versions)
+  wheelmap: Zenodo 6382090 "Image Dataset of Accessibility Barriers" (CVAT XML + 5538 jpgs; images with only grab_bar boxes excluded)
