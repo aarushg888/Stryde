@@ -189,7 +189,7 @@ def _haversine(a, b):
     return 12742_000.0 * math.asin(math.sqrt(hav))
 
 
-@app.post("/search")
+@app.get("/search")
 def search(start: str = Query(...), goal: str = Query(...)):
     s_start = start.strip()
     s_goal = goal.strip()
