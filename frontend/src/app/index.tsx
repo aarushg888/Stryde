@@ -1,4 +1,4 @@
-import { api, BASE_URL, type RouteResult } from "@/api/api";
+import { api, type RouteResult } from "@/api/api";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { WebBadge } from "@/components/web-badge";
@@ -14,7 +14,6 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
@@ -23,9 +22,7 @@ import {
 } from "react-native";
 import MapView, {
   Marker,
-  Polyline,
-  type MapPressEvent,
-  type MarkerDragStartEndEvent,
+  Polyline
 } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -41,28 +38,28 @@ const DEMO_GOAL = "38.9184,-77.0248";
 
 const WALK_SPEED_KMH = 4.5;
 
-/**
- * Parse a "lat,lng" string into a coordinate, or null when it isn't one
- * (e.g. a graph node id like "n100"). The backend /search accepts
- * "lat,lng" strings directly, so a map tap converts straight into that
- * contract without any geocoding round-trip.
- */
 function parseLatLng(
   value: string,
 ): { latitude: number; longitude: number } | null {
-  const match = value
-    .trim()
-    .match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
-  if (!match) return null;
-  const latitude = parseFloat(match[1]);
-  const longitude = parseFloat(match[2]);
-  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
-  return { latitude, longitude };
-}
+  const parts = value.split(",").map((part) => part.trim());
 
-/** Format a coordinate the way the backend expects it. */
-function formatLatLng(coordinate: { latitude: number; longitude: number }) {
-  return `${coordinate.latitude.toFixed(6)},${coordinate.longitude.toFixed(6)}`;
+  if (parts.length !== 2) return null;
+
+  const latitude = Number(parts[0]);
+  const longitude = Number(parts[1]);
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null;
+  }
+
+  return { latitude, longitude };
 }
 
 export default function HomeScreen() {
@@ -79,42 +76,11 @@ export default function HomeScreen() {
   const [svcState, setSvcState] = useState<
     "checking" | "online" | "warming" | "offline"
   >("checking");
+  const [plannerExpanded, setPlannerExpanded] = useState(false);
   const mapRef = React.useRef<MapView>(null);
-
-  // When set, the next map tap writes into that field as a "lat,lng" pair.
-  const [picking, setPicking] = useState<"start" | "destination" | null>(null);
-
-  // Live pins derived from the text inputs: no separate pin state to keep in
-  // sync — the inputs remain the single source of truth for routing.
-  const startPin = parseLatLng(startLocation);
-  const endPin = parseLatLng(destination);
-
-  const handleMapPress = (event: MapPressEvent) => {
-    if (!picking) return;
-    const value = formatLatLng(event.nativeEvent.coordinate);
-    if (picking === "start") {
-      setStartLocation(value);
-    } else {
-      setDestination(value);
-    }
-    setPicking(null);
-  };
-
-  // Dragging a pin re-writes its coordinate so the next search uses the
-  // adjusted position.
-  const handlePinDrag = (
-    which: "start" | "destination",
-    event: MarkerDragStartEndEvent,
-  ) => {
-    const value = formatLatLng(event.nativeEvent.coordinate);
-    if (which === "start") {
-      setStartLocation(value);
-    } else {
-      setDestination(value);
-    }
-    setRoute(null);
-    setRouteError(null);
-  };
+  const [mapPickMode, setMapPickMode] = useState<
+    "start" | "destination" | null
+  >(null);
 
   // Backend visibility pill: tells users whether the API is reachable before they type.
   useEffect(() => {
@@ -128,6 +94,14 @@ export default function HomeScreen() {
         if (alive) setSvcState("offline");
       }
     };
+
+    const collapsePlanner = () => {
+      if (!startLocation.trim() && !destination.trim()) {
+        setPlannerExpanded(false);
+        Keyboard.dismiss();
+      }
+    };
+
     void poll();
     const id = setInterval(poll, 30000);
     return () => {
@@ -149,16 +123,23 @@ export default function HomeScreen() {
     };
   }, []);
 
+  const clearRoute = () => {
+    setRoute(null);
+    setRouteStatus(null);
+    setRouteError(null);
+  };
+
   const loadDemo = () => {
+    setPlannerExpanded(true);
     setStartLocation(DEMO_START);
     setDestination(DEMO_GOAL);
+    clearRoute();
   };
 
   const swapEnds = () => {
     setStartLocation(destination);
     setDestination(startLocation);
-    setRoute(null);
-    setRouteError(null);
+    clearRoute();
   };
 
   const handleFindRoute = async () => {
@@ -209,66 +190,108 @@ export default function HomeScreen() {
     }
   };
 
+  const startCoordinate = parseLatLng(startLocation);
+  const destinationCoordinate = parseLatLng(destination);
+
   const routeCoords = route?.geometry?.length
     ? route.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng }))
     : [];
 
   return (
     <ThemedView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={
-          Platform.OS === "ios"
-            ? "padding"
-            : Platform.OS === "android"
-              ? "height"
-              : undefined
-        }
-      >
-        <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-          <View style={styles.header}>
-            <View style={styles.headerSide} />
-            <View style={styles.headerTitle}>
-              <ThemedText type="title" style={styles.title}>
-                Stryde
-              </ThemedText>
-              <ThemedText
-                type="small"
-                themeColor="textSecondary"
-                style={styles.tagline}
-              >
-                Accessible pedestrian routing
-              </ThemedText>
-            </View>
-            {keyboardVisible ? (
-              <TouchableOpacity
-                style={styles.dismissKeyboardButton}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setKeyboardVisible(false);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Hide keyboard"
-              >
-                <MaterialIcons
-                  name="keyboard-hide"
-                  size={18}
-                  color={colors.text}
-                />
-                <ThemedText type="small">Done</ThemedText>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.headerSide} />
-            )}
-          </View>
+      <View style={[styles.mapCard, { borderColor: colors.backgroundElement }]}>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          initialRegion={DC_REGION}
+          showsUserLocation={false}
+          showsMyLocationButton={false}
+          toolbarEnabled={false}
+          onPress={({ nativeEvent }) => {
+            if (!mapPickMode) return;
 
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            keyboardDismissMode={
-              Platform.OS === "ios" ? "interactive" : "on-drag"
+            const { latitude, longitude } = nativeEvent.coordinate;
+            const coordinates = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+
+            if (mapPickMode === "destination") {
+              setDestination(coordinates);
+            } else {
+              setStartLocation(coordinates);
             }
-            keyboardShouldPersistTaps="handled"
+
+            clearRoute();
+            setPlannerExpanded(true);
+            setMapPickMode(null);
+          }}
+        >
+          {route && routeCoords.length > 1 && (
+            <>
+              <Polyline
+                coordinates={routeCoords}
+                strokeWidth={7}
+                strokeColor="rgba(255,255,255,0.85)"
+                lineCap="round"
+                lineJoin="round"
+              />
+              <Polyline
+                coordinates={routeCoords}
+                strokeWidth={4}
+                strokeColor={scheme === "dark" ? "#2ecc71" : "#27ae60"}
+                lineCap="round"
+                lineJoin="round"
+              />
+              <Marker
+                coordinate={routeCoords[0]}
+                title="Start"
+                description={route.start_node}
+                pinColor="#2ecc71"
+              />
+              <Marker
+                coordinate={routeCoords[routeCoords.length - 1]}
+                title="Destination"
+                description={route.goal_node}
+                pinColor="#e74c3c"
+              />
+            </>
+          )}
+          {!route && destinationCoordinate && (
+            <Marker
+              coordinate={destinationCoordinate}
+              title="Destination"
+              pinColor="#e74c3c"
+            />
+          )}
+
+          {!route && startCoordinate && (
+            <Marker
+              coordinate={startCoordinate}
+              title="Start"
+              pinColor="#2ecc71"
+            />
+          )}
+        </MapView>
+      </View>
+
+      {plannerExpanded && !route && !mapPickMode && (
+        <View pointerEvents="none" style={styles.mapDimOverlay} />
+      )}
+
+      <View style={styles.foregroundContainer} pointerEvents="box-none">
+        <KeyboardAvoidingView
+          pointerEvents="box-none"
+          style={styles.container}
+          behavior={
+            Platform.OS === "ios"
+              ? "padding"
+              : Platform.OS === "android"
+                ? "height"
+                : undefined
+          }
+        >
+          <SafeAreaView
+            pointerEvents="box-none"
+            style={styles.safeArea}
+            edges={["top", "left", "right"]}
           >
             <View
               style={[
@@ -353,12 +376,26 @@ export default function HomeScreen() {
             >
               <View style={styles.plannerCard}>
                 <View style={styles.plannerHeaderRow}>
+                  {plannerExpanded && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (!startLocation.trim() && !destination.trim()) {
+                          setPlannerExpanded(false);
+                          Keyboard.dismiss();
+                        }
+                      }}
+                      accessibilityLabel="Collapse route planner"
+                      style={{ padding: 8 }}
+                    >
+                      <MaterialIcons name="close" size={20} color="#64748b" />
+                    </TouchableOpacity>
+                  )}
                   <ThemedText
                     type="small"
                     themeColor="textSecondary"
                     style={styles.plannerLabel}
                   >
-                    Plan a route
+                    Choose Your Destination
                   </ThemedText>
                   {svcState !== "online" && (
                     <View
@@ -369,7 +406,7 @@ export default function HomeScreen() {
                           backgroundColor: "rgba(231,76,60,0.12)",
                         },
                         svcState === "warming" && {
-                          backgroundColor: "rgba(241,196,15,0.15)",
+                          backgroundColor: "rgba(15, 241, 83, 0.15)",
                         },
                       ]}
                     >
@@ -391,11 +428,11 @@ export default function HomeScreen() {
                         style={[
                           styles.svcPillText,
                           svcState === "offline" && { color: "#e74c3c" },
-                          svcState === "warming" && { color: "#b7950b" },
+                          svcState === "warming" && { color: "#2e9716" },
                         ]}
                       >
                         {svcState === "warming"
-                          ? "Detector warming up"
+                          ? "Online"
                           : svcState === "offline"
                             ? "Backend offline"
                             : "Checking…"}
@@ -414,73 +451,43 @@ export default function HomeScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Tap-to-set pins: arm a field, then tap the map. */}
-                <View style={styles.pickRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.pickChip,
-                      picking === "start" && styles.pickChipActive,
-                    ]}
-                    onPress={() =>
-                      setPicking((current) =>
-                        current === "start" ? null : "start",
-                      )
-                    }
-                    accessibilityRole="button"
-                    accessibilityLabel="Set starting point by tapping the map"
-                  >
-                    <MaterialIcons
-                      name="my-location"
-                      size={14}
-                      color={picking === "start" ? "#ffffff" : "#2ecc71"}
-                    />
-                    <ThemedText
+                {plannerExpanded && (
+                  <View style={styles.mapPickRow}>
+                    <TouchableOpacity
                       style={[
-                        styles.pickChipText,
-                        picking === "start" && styles.pickChipTextActive,
+                        styles.mapPickButton,
+                        mapPickMode === "destination" &&
+                          styles.mapPickButtonActive,
                       ]}
+                      onPress={() => setMapPickMode("destination")}
                     >
-                      Set start
-                    </ThemedText>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.pickChip,
-                      picking === "destination" && styles.pickChipActive,
-                    ]}
-                    onPress={() =>
-                      setPicking((current) =>
-                        current === "destination" ? null : "destination",
-                      )
-                    }
-                    accessibilityRole="button"
-                    accessibilityLabel="Set destination by tapping the map"
-                  >
-                    <MaterialIcons
-                      name="flag"
-                      size={14}
-                      color={picking === "destination" ? "#ffffff" : "#e74c3c"}
-                    />
-                    <ThemedText
+                      <MaterialIcons name="place" size={17} color="#e74c3c" />
+                      <ThemedText style={styles.mapPickButtonText}>
+                        {mapPickMode === "destination"
+                          ? "Tap map to place red pin"
+                          : "Pick destination"}
+                      </ThemedText>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
                       style={[
-                        styles.pickChipText,
-                        picking === "destination" && styles.pickChipTextActive,
+                        styles.mapPickButton,
+                        mapPickMode === "start" && styles.mapPickButtonActive,
                       ]}
+                      onPress={() => setMapPickMode("start")}
                     >
-                      Set destination
-                    </ThemedText>
-                  </TouchableOpacity>
-                </View>
-                {picking && (
-                  <ThemedText
-                    type="small"
-                    themeColor="textSecondary"
-                    style={styles.pickHint}
-                  >
-                    Tap the map to set your{" "}
-                    {picking === "start" ? "starting point" : "destination"} ·
-                    tap the chip again to cancel
-                  </ThemedText>
+                      <MaterialIcons
+                        name="my-location"
+                        size={17}
+                        color="#2ecc71"
+                      />
+                      <ThemedText style={styles.mapPickButtonText}>
+                        {mapPickMode === "start"
+                          ? "Tap map to place green pin"
+                          : "Pick starting point"}
+                      </ThemedText>
+                    </TouchableOpacity>
+                  </View>
                 )}
 
                 {/* Start point */}
@@ -520,26 +527,20 @@ export default function HomeScreen() {
                   />
                   {startLocation.length > 0 && (
                     <TouchableOpacity
-                      style={styles.clearButton}
-                      onPress={() => setStartLocation("")}
+                      style={styles.swapButton}
+                      onPress={swapEnds}
                       accessibilityRole="button"
-                      accessibilityLabel="Clear starting point"
+                      accessibilityLabel="Swap starting point and destination"
+                      activeOpacity={0.7}
                     >
-                      <MaterialIcons name="close" size={16} color="#888" />
+                      <MaterialIcons
+                        name="swap-vert"
+                        size={18}
+                        color="#3498db"
+                      />
                     </TouchableOpacity>
-                  )}
-                </View>
-
-                {/* Ends swap control */}
-                <TouchableOpacity
-                  style={styles.swapButton}
-                  onPress={swapEnds}
-                  accessibilityRole="button"
-                  accessibilityLabel="Swap starting point and destination"
-                  activeOpacity={0.7}
-                >
-                  <MaterialIcons name="swap-vert" size={18} color="#3498db" />
-                </TouchableOpacity>
+                  </>
+                )}
 
                 {/* Destination */}
                 <View style={styles.fieldRow}>
@@ -559,10 +560,14 @@ export default function HomeScreen() {
                         borderColor: colors.backgroundElement,
                       },
                     ]}
+                    onFocus={() => setPlannerExpanded(true)}
                     placeholder="Destination (node id, or lat,lng)"
                     placeholderTextColor="#888"
                     value={destination}
-                    onChangeText={setDestination}
+                    onChangeText={(text) => {
+                      setDestination(text);
+                      clearRoute();
+                    }}
                     autoCapitalize="none"
                     autoCorrect={false}
                     keyboardType="ascii-capable"
@@ -576,7 +581,10 @@ export default function HomeScreen() {
                   {destination.length > 0 && (
                     <TouchableOpacity
                       style={styles.clearButton}
-                      onPress={() => setDestination("")}
+                      onPress={() => {
+                        setDestination("");
+                        clearRoute();
+                      }}
                       accessibilityRole="button"
                       accessibilityLabel="Clear destination"
                     >
@@ -665,15 +673,15 @@ export default function HomeScreen() {
 
               {Platform.OS === "web" && <WebBadge />}
             </View>
-          </ScrollView>
-        </SafeAreaView>
-      </KeyboardAvoidingView>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </View>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: "transparent" },
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
@@ -705,12 +713,16 @@ const styles = StyleSheet.create({
   },
   title: {
     textAlign: "center",
+    fontFamily: "HelveticaNeue-Bold",
+    color: "#1A73E8",
   },
   tagline: {
     textAlign: "center",
     letterSpacing: 0.6,
     textTransform: "uppercase",
-    fontWeight: "600",
+    fontWeight: "900",
+    fontSize: 10,
+    color: "#1A73E8",
   },
   scrollView: {
     flex: 1,
@@ -723,19 +735,32 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   mapCard: {
-    height: 250,
-    borderRadius: Spacing.three,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "100%",
+    width: "100%",
+    borderRadius: 0,
     overflow: "hidden",
     borderWidth: 1,
+    zIndex: 0,
+    elevation: 0,
   },
-  map: { width: "100%", height: "100%" },
+  map: { width: "100%", height: "100%", top: 0, left: 0, right: 0, bottom: 0 },
   plannerCard: {
     gap: Spacing.two,
-    backgroundColor: "rgba(126, 123, 123, 0.05)",
+    backgroundColor: "rgba(255, 255, 255, 0.94)",
     borderWidth: 1,
-    borderColor: "rgba(126, 123, 123, 0.12)",
+    borderColor: "rgba(226, 232, 240, 0.9)",
     borderRadius: Spacing.three,
     padding: Spacing.three,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
   },
   plannerHeaderRow: {
     flexDirection: "row",
@@ -745,7 +770,10 @@ const styles = StyleSheet.create({
   plannerLabel: {
     fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
+    fontSize: 11,
+    top: -20,
+    color: "#2563EB",
   },
   svcPill: {
     flexDirection: "row",
@@ -755,6 +783,8 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 999,
     backgroundColor: "rgba(149,165,166,0.15)",
+    top: -15,
+    left: 110,
   },
   svcDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#2ecc71" },
   svcPillText: { fontSize: 11 },
@@ -767,6 +797,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     minHeight: 36,
     justifyContent: "center",
+    top: -9,
+    left: -70,
   },
   textChipText: {
     fontSize: 12,
@@ -825,6 +857,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     fontSize: 15,
     backgroundColor: "transparent",
+    color: "#000000",
   },
   clearButton: {
     width: 44,
@@ -832,6 +865,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     borderRadius: Spacing.four,
+  },
+  foregroundContainer: {
+    zIndex: 1,
+    elevation: 1,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    position: "absolute",
   },
   swapButton: {
     alignSelf: "center",
@@ -915,5 +957,40 @@ const styles = StyleSheet.create({
     opacity: 0.65,
     paddingBottom: BottomTabInset + Spacing.three,
     paddingHorizontal: Spacing.two,
+  },
+  mapDimOverlay: {
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    position: "absolute",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    zIndex: 0,
+  },
+  mapPickRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  mapPickButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 10,
+    backgroundColor: "#ffffff",
+  },
+  mapPickButtonActive: {
+    borderColor: "#3498db",
+    backgroundColor: "#eff6ff",
+  },
+  mapPickButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#334155",
   },
 });

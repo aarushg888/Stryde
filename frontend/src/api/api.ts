@@ -52,6 +52,15 @@ export type Health = {
   coverage: string[];
 };
 
+export type ChatPreferences = {
+  message: string;
+  routingMode: "standard" | "wheelchair";
+  preferSidewalks: boolean;
+  wellLitOnly: boolean;
+  lowTraffic: boolean;
+  avoidObstacles: boolean;
+};
+
 /**
  * Wrapper so connection failures (phone hitting `localhost`, backend down) come
  * back as one clear, actionable message instead of a bare TypeError.
@@ -92,6 +101,15 @@ export const api = {
   async searchRoute(start: string, goal: string): Promise<RouteResult> {
     const qs = new URLSearchParams({ start, goal });
     const res = await request(`/search?${qs}`);
+    return res.json();
+  },
+
+  async chat(preferences: ChatPreferences): Promise<{ reply: string }> {
+    const res = await request("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(preferences),
+    });
     return res.json();
   },
 
