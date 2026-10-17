@@ -99,15 +99,19 @@ network stage; polygons also contain `road`).
 * `f_type` mapping in conversion (scripts + notebook):
   * `sidewalk -> sidewalk`, `crosswalk -> crosswalk`, `footpath -> footpath`
     (if emitted by future versions)
-  * `road`, `sidewalk_connection`, `medians` are excluded from the router
-    GeoJSON (not detected features; documented here, not silently dropped).
+  * `sidewalk_connection -> connector` — kept in the router GeoJSON since it
+    stitches sidewalks to crosswalks (used for graph connectivity, not a
+    detected feature; CONTRACT CHANGE made in ml/aerial after the
+    connectivity audit showed 607 components / 2.5% largest-share without it)
+  * `road`, `medians` are excluded from the router
+    GeoJSON (not detected walkable features; documented here, not silently dropped).
 * No per-feature softmax/confidence survives into vector outputs;
   `confidence` is set to `null` in the contract files (never invented).
 
 ## Contract outputs (what the router consumes)
 
 * `data/<area>_inferred.geojson` — LineStrings, EPSG:4326,
-  properties `{"source": "ml", "kind": ..., "confidence": null}`
+  properties `{"source": "ml", "kind": "sidewalk"|"crosswalk"|"footpath"|"connector", "confidence": null}`
 * `data/<area>_polygons.geojson` — polygons, same properties
 * `metrics/aerial_vs_osm.json` — OSM comparison (+ `in_training_cities` flag);
   OSM is incomplete and not ground truth.

@@ -84,10 +84,14 @@ Same outputs, same contract; useful as the upstream-validated control.
 ## Output contract (router handoff)
 
 * `data/demo_area_inferred.geojson` — LineStrings, EPSG:4326,
-  properties `{"source": "ml", "kind": "sidewalk"|"crosswalk"|"footpath",
+  properties `{"source": "ml", "kind": "sidewalk"|"crosswalk"|"footpath"|"connector",
   "confidence": null}`
   *Tile2Net does not expose per-feature softmax/confidence in its vector
-  outputs, so `confidence` is null (documented; not invented).*
+  outputs, so `confidence` is null (documented; not invented).
+  `connector` lines are tile2net-generated sidewalk↔crosswalk stitching
+  segments — not detected aerial features, but required for a routable
+  graph. Near-duplicate parallel crosswalk centerlines are collapsed with
+  `--collapse-crosswalks` (~1.5 m clusters, longest kept).*
 * `data/demo_area_polygons.geojson` — polygons, same properties.
 * `metrics/aerial_vs_osm.json` — recall proxy (share of OSM sidewalk/
   crossing length within 3 m of tile2net centerlines), share of tile2net
