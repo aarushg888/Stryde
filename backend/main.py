@@ -241,3 +241,6 @@ async def detect_endpoint(file: UploadFile = File(), conf: float = Form(0.25)):
         return {"detections": detect(data, conf=conf)}
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail=NO_DATA)
+    except Exception:
+        from PIL import UnidentifiedImageError
+        raise HTTPException(status_code=400, detail="unrecognized/corrupt image upload")
