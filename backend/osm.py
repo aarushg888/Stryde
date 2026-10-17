@@ -1,6 +1,11 @@
 import osmnx as ox
 import pickle
+import pathlib
 from itertools import islice
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+PICKLE_DIR = ROOT / "data" / "osm" / "pickle"
+PICKLE_DIR.mkdir(parents=True, exist_ok=True)
 
 ox.settings.useful_tags_way = list(set(
     ox.settings.useful_tags_way
@@ -48,11 +53,11 @@ print("Node_latlng:", dict(islice(node_latlng.items(), 5)))
 print("Adj:", dict(islice(adjacencies.items(), 5)))
 print("Tubes:", dict(islice(tubes.items(), 5)))
 print("Tube_kind:", dict(islice(tube_kind.items(), 5)))
-with open("../data/osm/pickle/node_latlng.pkl", "wb") as file:
+with open(PICKLE_DIR / "node_latlng.pkl", "wb") as file:
     pickle.dump(node_latlng, file)
-with open("../data/osm/pickle/adjacencies.pkl", "wb") as file:
+with open(PICKLE_DIR / "adjacencies.pkl", "wb") as file:
     pickle.dump(adjacencies, file)
-with open("../data/osm/pickle/tubes.pkl", "wb") as file:
+with open(PICKLE_DIR / "tubes.pkl", "wb") as file:
     pickle.dump(tubes, file)
-with open("../data/osm/pickle/tube_kind.pkl", "wb") as file:
+with open(PICKLE_DIR / "tube_kind.pkl", "wb") as file:
     pickle.dump(tube_kind, file)
