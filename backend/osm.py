@@ -29,13 +29,7 @@ def classify_edge(data):
 
     if footway == "sidewalk":
         return "sidewalk"
-    print(footway, path)
     return "unknown"
-def distance(n1,n2):
-    y1,x1 = G.nodes[n1]["y"],G.nodes[n1]["x"]
-    y2,x2 = G.nodes[n2]["y"],G.nodes[n2]["x"]
-
-    return ox.distance.great_circle(y1, x1, y2, x2)
 for node in G.nodes():
     node_latlng[node] = [G.nodes[node]["y"],G.nodes[node]["x"]] 
     neighbors = set(G.neighbors(node))
