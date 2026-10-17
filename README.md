@@ -1,4 +1,4 @@
-# Stryde — accessible pedestrian routing (MVP)
+# Stryde — accessible pedestrian routing
 
 Stryde routes pedestrians — especially wheelchair and low-visibility users —
 using **two ML layers** over real data:
