@@ -9,8 +9,9 @@ into data/yolo/{train,val,test}, with per-class instance counts and a
 report flagging classes under 150 train instances.
 
 Usage:
-  backend/tile2net/.venv/bin/python ml/street/scripts/build_dataset.py \
-      --classes ml/street/configs/classes.yaml --out ml/street/data/yolo
+  backend/tile2net/.venv/bin/python backend/ml/street/scripts/build_dataset.py \
+      --classes backend/ml/street/configs/classes.yaml \
+      --out backend/ml/street/data/yolo
 """
 from __future__ import annotations
 
@@ -159,15 +160,15 @@ def dedupe(index, hash_thresh=4):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--classes", default="ml/street/configs/classes.yaml")
-    ap.add_argument("--out", default="ml/street/data/yolo")
+    ap.add_argument("--classes", default="backend/ml/street/configs/classes.yaml")
+    ap.add_argument("--out", default="backend/ml/street/data/yolo")
     ap.add_argument("--hash-thresh", type=int, default=4)  # 64-bit phash hamming
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.classes))
     mapping, cls_names = build_mapping(cfg)
-    root = pathlib.Path("ml/street/data")
+    root = pathlib.Path("backend/ml/street/data")
 
     index = {}
     for ds in ROBOFLOW_DIRS:

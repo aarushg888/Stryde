@@ -1,10 +1,10 @@
 # ml/street class mapping — target detector classes
 # Target: 5 classes for the accessibility-aware router.
 findings:  # human-readable notes for FINAL_REPORT
-  - ramp (Zenodo) has only 143 instances -> below the 150-instance visibility threshold
-  - grab_bar (Zenodo) dropped: not used by the router
-  - pedestrian sign / stop sign / traffic light post / button / signal: dropped (not barriers)
-  - '\' (combined-proj v2 extra class): dropped (no semantic mapping; malformed class name)
+  - "ramp (Zenodo) has only 143 instances -> below the 150-instance visibility threshold"
+  - "grab_bar (Zenodo) dropped: not used by the router"
+  - "pedestrian sign / stop sign / traffic light post / button / signal: dropped (not barriers)"
+  - "backslash (combined-proj v2 extra class): dropped (no semantic mapping; malformed class name)"
 classes:
   - name: curb_ramp
     sources:                # source class name -> handling
