@@ -29,7 +29,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from PIL import UnidentifiedImageError
 from pydantic import BaseModel, Field
 from typing import List
-import pandas as pd
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO = ROOT  # backend/.. == repo root
@@ -247,9 +246,6 @@ def _coverage_file(area: str) -> pathlib.Path:
         raise HTTPException(status_code=503, detail=f"coverage file missing: run the aerial pipeline ({rel})")
     return file
 
-
-_INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
-incident_df = pd.read_csv(_INCIDENTS_PATH)
 
 def find_incident_near(lat, lng, k: int = 6):
     # scored = []
