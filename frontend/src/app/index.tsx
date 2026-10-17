@@ -8,7 +8,14 @@ import { ThemedView } from '@/components/themed-view';
 import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing, Colors } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
+import { api, type RouteResult } from '@/api/api';
+
+// MVP coverage area kept in sync with the backend's built graph (Logan Circle).
+const DC_REGION = {
+  latitude: 38.9137, longitude: -77.0325,
+  latitudeDelta: 0.012, longitudeDelta: 0.012,
+};
 
 function getDevMenuHint() {
   if (Platform.OS === 'web') return <ThemedText type="small">use browser devtools</ThemedText>;
@@ -26,10 +33,45 @@ export default function HomeScreen() {
   // State variables for the search input inputs
   const [startLocation, setStartLocation] = useState('');
   const [destination, setDestination] = useState('');
+  const [route, setRoute] = useState<RouteResult | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const [routeStatus, setRouteStatus] = useState<string | null>(null);
+  const [finding, setFinding] = useState(false);
+  const mapRef = React.useRef<MapView>(null);
 
   const handleUseCurrentLocation = () => {
-    setStartLocation('My Current Location');
+    setStartLocation('38.9131,-77.0305'); // demo-area center; replace with expo-location later
   };
+
+  const handleFindRoute = async () => {
+    if (!startLocation.trim() || !destination.trim()) {
+      setRouteStatus('Enter a start (node id or lat,lng) and a destination.');
+      return;
+    }
+    setFinding(true);
+    setRoute(null);
+    setRouteError(null);
+    setRouteStatus('Finding safer route…');
+    try {
+      const result = await api.searchRoute(startLocation.trim(), destination.trim());
+      setRoute(result);
+      const km = (result.total_cut_m / 1000).toFixed(2);
+      setRouteStatus(`${km} km · ${result.path.length} segments · snapped ${result.snap.start_m}m + ${result.snap.goal_m}m`);
+      if (result.geometry.length > 1) {
+        mapRef.current?.fitToCoordinates(
+          result.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng })),
+          { edgePadding: { top: 60, right: 40, bottom: 60, left: 40 }, animated: true });
+      }
+    } catch (e) {
+      setRouteError(e instanceof Error ? e.message : 'Route failed');
+    } finally {
+      setFinding(false);
+    }
+  };
+
+  const routeCoords = route?.geometry?.length
+    ? route.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng }))
+    : [];
 
   return (
     <ThemedView style={styles.container}>
@@ -43,36 +85,23 @@ export default function HomeScreen() {
         {/* Completely native map rendering - exactly your original sizing and structure */}
         <View style={styles.mapContainer}>
           <MapView
+            ref={mapRef}
+            provider={undefined}
+            showsUserLocation={false}
             style={styles.map}
-            initialRegion={{
-              latitude: 40.7128,
-              longitude: -74.0060,
-              latitudeDelta: 0.05,
-              longitudeDelta: 0.05,
-            }}
+            initialRegion={DC_REGION}
           >
-            {/* Base user location pin */}
-            <Marker 
-              coordinate={{ latitude: 40.7128, longitude: -74.0060 }}
-              title="Your Location"
-              pinColor="#3498db"
-            />
-
-            {/* Pedestrian-relevant Details: Blocked Sidewalk Hazard Pin */}
-            <Marker 
-              coordinate={{ latitude: 40.7158, longitude: -74.0020 }}
-              title="Blocked Sidewalk"
-              description="Construction blocking accessible ramp framework."
-              pinColor="#e74c3c"
-            />
-
-            {/* Pedestrian-relevant Details: Fallen Tree Hazard Pin */}
-            <Marker 
-              coordinate={{ latitude: 40.7085, longitude: -74.0110 }}
-              title="Fallen Tree"
-              description="Large branches completely blocking pedestrian walkway paths."
-              pinColor="#e74c3c"
-            />
+            {/* Real walking route from the accessibility router graph */}
+            {route && routeCoords.length > 1 && (
+              <>
+                <Polyline coordinates={routeCoords} strokeWidth={4}
+                  strokeColor="#2ecc71" lineDashPattern={[1]} />
+                <Marker coordinate={routeCoords[0]} title="Start"
+                  description={route.start_node} pinColor="#2ecc71" />
+                <Marker coordinate={routeCoords[routeCoords.length - 1]} title="Goal"
+                  description={route.goal_node} pinColor="#e74c3c" />
+              </>
+            )}
           </MapView>
         </View>
 
@@ -81,7 +110,7 @@ export default function HomeScreen() {
           <View style={styles.inputWrapper}>
             <TextInput
               style={[styles.inputField, { color: colors.text, borderColor: colors.backgroundElement }]}
-              placeholder="Starting Location..."
+              placeholder="Start (node id or lat,lng)…"
               placeholderTextColor="#888"
               value={startLocation}
               onChangeText={setStartLocation}
@@ -97,23 +126,26 @@ export default function HomeScreen() {
 
           <TextInput
             style={[styles.inputField, { color: colors.text, borderColor: colors.backgroundElement }]}
-            placeholder="Enter Destination..."
+            placeholder="Destination (node id or lat,lng)…"
             placeholderTextColor="#888"
             value={destination}
             onChangeText={setDestination}
           />
 
-          <TouchableOpacity style={styles.actionRouteButton} activeOpacity={0.8}>
-            <ThemedText style={styles.actionButtonText}>🛡️ Find a Safer Route</ThemedText>
+          <TouchableOpacity style={styles.actionRouteButton} activeOpacity={0.8}
+            onPress={handleFindRoute} disabled={finding}>
+            <ThemedText style={styles.actionButtonText}>
+              {finding ? 'Routing…' : '🛡️ Find a Safer Route'}
+            </ThemedText>
           </TouchableOpacity>
         </View>
 
         <ThemedText type="code" style={styles.code}>
-          Enter Your Destination and Explore the World with Stryde!
+          {routeError ?? routeStatus ?? 'start/goal accept a graph node id (n0…) or "lat,lng"'}
         </ThemedText>
 
         <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow title="Try editing" hint Papaya={<ThemedText type="code">src/app/index.tsx</ThemedText>} />
+          <HintRow title="If API unreachable" hint={<ThemedText type="code">uvicorn backend.main:app</ThemedText>} />
           <HintRow title="Dev tools" hint={getDevMenuHint()} />
           <HintRow title="Fresh start" hint={<ThemedText type="code">npm run reset-project</ThemedText>} />
         </ThemedView>

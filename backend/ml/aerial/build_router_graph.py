@@ -66,6 +66,18 @@ def build(gdf: gpd.GeoDataFrame, tolerance: float):
     for i, j in pairs:
         union(i, j)
 
+    # node coordinate (lat, lng) per union-find root (EPSG:4326)
+    import collections
+    root_pts = collections.defaultdict(list)
+    for i in range(len(pts)):
+        root_pts[find(i)].append(pts[i])
+    roots = sorted(root_pts)
+    cent = np.array([np.mean(root_pts[r], axis=0) for r in roots])
+    pts4326 = gpd.GeoDataFrame(
+        geometry=gpd.points_from_xy(cent[:, 0], cent[:, 1]), crs=epsg).to_crs(4326)
+    latlngs = {f"n{r}": [round(float(la), 6), round(float(lo), 6)]
+               for r, (la, lo) in zip(roots, zip(pts4326.geometry.y, pts4326.geometry.x))}
+
     adjacency = {}
     tubes = {}
     loops = 0
@@ -83,7 +95,7 @@ def build(gdf: gpd.GeoDataFrame, tolerance: float):
         adjacency.setdefault(a, set()).add(b)
         adjacency.setdefault(b, set()).add(a)
 
-    return epsg, adjacency, tubes, loops
+    return epsg, adjacency, tubes, loops, latlngs
 
 
 def main():
@@ -95,7 +107,7 @@ def main():
     args = ap.parse_args()
 
     gdf = gpd.read_file(args.inferred)
-    epsg, adjacency, tubes, loops = build(gdf, args.tolerance)
+    epsg, adjacency, tubes, loops, latlngs = build(gdf, args.tolerance)
 
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -107,6 +119,7 @@ def main():
         {"epsg": epsg, "nodes": len(adjacency), "tubes": len(tubes),
          "weight": "length in meters (projected EPSG:%d)" % epsg,
          "tolerance_m": args.tolerance, "closed_loop_lines": loops,
+         "node_latlng": latlngs,
          "source": args.inferred}, indent=2))
     print("nodes:", len(adjacency), "tubes:", len(tubes),
           "closed loops skipped:", loops, "->", out.resolve())

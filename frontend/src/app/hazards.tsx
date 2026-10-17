@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { Image, StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Spacing, Colors } from '@/constants/theme';
 import { useColorScheme } from 'react-native';
+import { api, type Detection } from '@/api/api';
 
 type HazardType = 'Sidewalk' | 'Tree' | 'Construction' | 'Other';
 
@@ -16,21 +18,46 @@ export default function HazardsScreen() {
   const [selectedType, setSelectedType] = useState<HazardType | null>(null);
   const [locationText, setLocationText] = useState('');
   const [description, setDescription] = useState('');
-  const [photoAttached, setPhotoAttached] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [detections, setDetections] = useState<Detection[] | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
-  const handleAttachPhoto = () => {
-    // Simulates picking or taking an asset photo safely
-    setPhotoAttached(true);
-    Alert.alert("Camera Module", "Photo attached successfully (simulated).");
+  const handleAttachPhoto = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission needed', 'Allow photo access to attach evidence.');
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
+    if (!res.canceled && res.assets.length > 0) {
+      setPhotoUri(res.assets[0].uri);
+      setDetections(null);
+    }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedType || !locationText.trim()) {
       Alert.alert("Missing Information", "Please select a hazard type and specify the location.");
       return;
     }
-    // Activates the submission confirmation layout block
+    let found: Detection[] | null = null;
+    if (photoUri) {
+      setAnalyzing(true);
+      try {
+        found = (await api.detectHazard(photoUri)).detections;
+        if (found.length === 0) {
+          Alert.alert('Model result', 'No street barriers detected in this photo.');
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Detection failed';
+        // model still training on Colab -> 503 "warming up": submit anyway
+        Alert.alert('Detector unavailable', msg);
+      } finally {
+        setAnalyzing(false);
+      }
+    }
+    setDetections(found);
     setIsSubmitted(true);
   };
 
@@ -38,7 +65,8 @@ export default function HazardsScreen() {
     setSelectedType(null);
     setLocationText('');
     setDescription('');
-    setPhotoAttached(false);
+    setPhotoUri(null);
+    setDetections(null);
     setIsSubmitted(false);
   };
 
@@ -52,6 +80,18 @@ export default function HazardsScreen() {
           <ThemedText style={styles.confirmationText}>
             Thank you for keeping Stryde safe. Your report has been pinned to the local network map.
           </ThemedText>
+          {photoUri && <Image source={{ uri: photoUri }} style={styles.confirmPhoto} />}
+          {detections !== null && (
+            <ThemedText style={styles.confirmationText}>
+              {detections.length > 0
+                ? 'AI barriers detected: ' +
+                  Object.entries(detections.reduce<Record<string, number>>((acc, d) => {
+                    acc[d.class] = (acc[d.class] ?? 0) + 1;
+                    return acc;
+                  }, {})).map(([k, v]) => `${k}×${v}`).join(', ')
+                : 'AI: no street barriers detected in the attached photo.'}
+            </ThemedText>
+          )}
           <TouchableOpacity 
             style={[styles.actionButton, { backgroundColor: '#3498db' }]} 
             onPress={handleResetForm}
@@ -136,12 +176,12 @@ export default function HazardsScreen() {
           <View style={styles.section}>
             <ThemedText style={styles.sectionLabel}>4. Visual Evidence</ThemedText>
             <TouchableOpacity 
-              style={[styles.photoButton, { borderColor: photoAttached ? '#2ecc71' : colors.backgroundElement }]}
+              style={[styles.photoButton, { borderColor: photoUri ? '#2ecc71' : colors.backgroundElement }]}
               onPress={handleAttachPhoto}
               activeOpacity={0.7}
             >
-              <ThemedText style={[styles.photoButtonText, photoAttached && { color: '#2ecc71' }]}>
-                {photoAttached ? '📸 Photo Attached ✓' : '📷 Take / Attach Photo'}
+              <ThemedText style={[styles.photoButtonText, photoUri && { color: '#2ecc71' }]}>
+                {analyzing ? '🤖 Analyzing…' : photoUri ? '📸 Photo Attached ✓ — analyzing on submit' : '📷 Attach Photo'}
               </ThemedText>
             </TouchableOpacity>
           </View>
@@ -164,6 +204,12 @@ export default function HazardsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  confirmPhoto: {
+    width: '80%',
+    height: 180,
+    borderRadius: Spacing.three,
+    marginBottom: Spacing.three,
   },
   safeArea: {
     flex: 1,

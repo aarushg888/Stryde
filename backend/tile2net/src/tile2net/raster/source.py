@@ -531,7 +531,9 @@ class SpringHillTN(ArcGis):
 
 class Virginia(ArcGis):
     """Data from https://vgin.vdem.virginia.gov/pages/orthoimagery"""
-    server = "https://gismaps.vdem.virginia.gov/arcgis/rest/services/VBMP_Imagery/MostRecentImagery_WGS/MapServer/"
+    # NOTE (ml-v1): upstream host gismaps.vdem.virginia.gov is dead (NXDOMAIN);
+    # service moved to vginmaps.vdem.virginia.gov (same path, verified 200).
+    server = "https://vginmaps.vdem.virginia.gov/arcgis/rest/services/VBMP_Imagery/MostRecentImagery_WGS/MapServer/"
     name = "va"
     keyword = "Virginia"
     box = shapely.geometry.box(-83.6753, 36.5407, -75.1664, 39.4660)

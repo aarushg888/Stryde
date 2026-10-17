@@ -24,3 +24,9 @@ backend/ml/street/weights/
 
 # qa candidate dumps (regenerable via osm_metrics --dump-new-edges)
 backend/ml/aerial/qa/*_all.geojson
+
+# tile2net local artifacts (clone is tracked, these are not)
+backend/tile2net/runs/
+backend/tile2net/uv.lock
+*.pt
+backend/tile2net/output/

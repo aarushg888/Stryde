@@ -91,7 +91,7 @@ export default function TabTwoScreen() {
       paddingBottom: insets.bottom,
     },
     web: {
-      paddingTop: Spacing.eight, // Shifted web views down slightly as well
+      paddingTop: Spacing.six, // Shifted web views down slightly as well
       paddingBottom: Spacing.four,
     },
   });
