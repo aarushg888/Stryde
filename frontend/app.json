@@ -35,11 +35,11 @@
           "imageWidth": 76
         }
       ],
-      "@maplibre/maplibre-react-native",
       "expo-font",
       "expo-web-browser",
       "expo-image",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

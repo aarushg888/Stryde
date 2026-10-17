@@ -1,10 +1,10 @@
-import { Tabs } from 'expo-router';
-import { useColorScheme, Image } from 'react-native';
-import { Colors } from '@/constants/theme';
+import { Colors } from "@/constants/theme";
+import { Tabs } from "expo-router";
+import { Image, useColorScheme } from "react-native";
 
 export default function AppTabs() {
   const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const colors = Colors[scheme === "dark" ? "dark" : "light"];
 
   return (
     <Tabs
@@ -13,7 +13,7 @@ export default function AppTabs() {
         tabBarActiveTintColor: colors.text,
         tabBarInactiveTintColor: colors.backgroundElement,
         tabBarStyle: {
-          backgroundColor: colors.background,
+          backgroundColor: "#303edf",
           borderTopWidth: 0, // Keeps bottom menu transition flat and clean
         },
       }}
@@ -22,10 +22,10 @@ export default function AppTabs() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Map',
+          title: "Map",
           tabBarIcon: ({ color }) => (
             <Image
-              source={require('@/assets/images/tabIcons/home.png')}
+              source={require("@/assets/images/tabIcons/home.png")}
               style={{ width: 24, height: 24, tintColor: color }}
               resizeMode="contain"
             />
@@ -37,10 +37,10 @@ export default function AppTabs() {
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Routes',
+          title: "Routes",
           tabBarIcon: ({ color }) => (
             <Image
-              source={require('@/assets/images/tabIcons/explore.png')}
+              source={require("@/assets/images/tabIcons/explore.png")}
               style={{ width: 24, height: 24, tintColor: color }}
               resizeMode="contain"
             />
@@ -52,10 +52,10 @@ export default function AppTabs() {
       <Tabs.Screen
         name="hazards"
         options={{
-          title: 'Hazards',
+          title: "Hazards",
           tabBarIcon: ({ color }) => (
             <Image
-              source={require('@/assets/images/tabIcons/explore.png')}
+              source={require("@/assets/images/tabIcons/explore.png")}
               style={{ width: 24, height: 24, tintColor: color }}
               resizeMode="contain"
             />
@@ -67,10 +67,10 @@ export default function AppTabs() {
       <Tabs.Screen
         name="preferences"
         options={{
-          title: 'Preferences',
+          title: "Preferences",
           tabBarIcon: ({ color }) => (
             <Image
-              source={require('@/assets/images/tabIcons/explore.png')}
+              source={require("@/assets/images/tabIcons/explore.png")}
               style={{ width: 24, height: 24, tintColor: color }}
               resizeMode="contain"
             />
