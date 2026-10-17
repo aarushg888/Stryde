@@ -30,3 +30,4 @@ backend/tile2net/runs/
 backend/tile2net/uv.lock
 *.pt
 backend/tile2net/output/
+data
