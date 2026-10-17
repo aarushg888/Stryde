@@ -38,6 +38,20 @@ def get(path):
             return e.code, {}
 
 
+def post_json(path, body):
+    try:
+        req = urllib.request.Request(
+            f"{BASE}{path}", data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode())
+        except Exception:
+            return e.code, {}
+
+
 def wait_healthy(timeout=60):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -80,6 +94,16 @@ def main():
 
         code, out = get("/search?start=38.99999,7&goal=38.9,77.0")
         check("far away -> 404 no node nearby", code == 404, f"{code} {out}")
+
+        code, one = post_json("/incidents", {"type": "Sidewalk", "location": "38.9131,-77.0305"})
+        check("incident POST 200", code == 200 and one.get("id", 0) > 0, f"{code} {one}")
+        check("incident latlng parsed", one.get("latlng") == [38.9131, -77.0305], str(one.get("latlng")))
+        code, listed = get("/incidents")
+        check("incident GET lists newest first",
+              code == 200 and listed["incidents"][0].get("id") == one["id"],
+              str(listed)[:160])
+        code, bad = post_json("/incidents", {"type": "", "location": "x"})
+        check("incident validation 422", code == 422, str(code))
 
         code, nova = get("/coverage?area=nova")
         check("nova coverage 200", code == 200 and len(nova.get("geojson", {}).get("features", [])) > 100)

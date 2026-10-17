@@ -6,6 +6,7 @@ Merges the router team's A* /search (start/end nodes over a graph of
   /search    GET  start,goal = node id ("n123") OR "lat,lng"  -> path + cost +
                    geometry ([[lat,lng],...]) + straight_m/ratio detour metrics
   /coverage  GET  area=demo|test|nova -> aerial-inferred sidewalk/crosswalk GeoJSON
+  /incidents GET/POST hazard reports (JSONL-backed; map pins for the app)
   /detect    POST multipart image + conf -> barrier detections (YOLO11s;
                   503 + clear message while weights are still training)
   /health    GET  model + graph + coverage status
@@ -21,9 +22,13 @@ import heapq
 import json
 import math
 import pathlib
+import time
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from PIL import UnidentifiedImageError
+from pydantic import BaseModel, Field
+from typing import List
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO = ROOT  # backend/.. == repo root
@@ -197,7 +202,6 @@ def search(start: str = Query(...), goal: str = Query(...)):
     # candidates on each side until a walkable path exists.
     path = cost = s_used = g_used = None
     tried = 0
-    s_latlng = next((c["latlng"] for c in s_cands), None)  # unused; endpoints come below
     for sc in s_cands:
         for gc in g_cands:
             tried += 1
@@ -277,6 +281,64 @@ def _coverage_file(area: str) -> pathlib.Path:
     return file
 
 
+_INCIDENTS_PATH = REPO / "data" / "incidents.jsonl"
+
+
+class IncidentIn(BaseModel):
+    type: str = Field(min_length=1, max_length=64)
+    location: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+    detected: List[str] = Field(default_factory=list, max_length=32)
+
+
+def _load_incidents():
+    if not _INCIDENTS_PATH.exists():
+        return []
+    out = []
+    for line in _INCIDENTS_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return out
+
+
+@app.post("/incidents")
+def add_incident(inc: IncidentIn):
+    """Persist one hazard report (JSON lines store at data/incidents.jsonl)."""
+    latlng = None
+    lat_s, _, lng_s = inc.location.partition(",")
+    if lng_s:
+        try:
+            lat_v, lng_v = float(lat_s), float(lng_s)
+            if -90 < lat_v < 90 and -180 < lng_v < 180:
+                latlng = [lat_v, lng_v]
+        except ValueError:
+            pass
+    existing = _load_incidents()
+    record = {
+        "id": len(existing) + 1,
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "type": inc.type.strip(),
+        "location": inc.location.strip(),
+        "latlng": latlng,
+        "description": inc.description.strip(),
+        "detected": inc.detected,
+    }
+    with _INCIDENTS_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return record
+
+
+@app.get("/incidents")
+def list_incidents(limit: int = Query(200, ge=1, le=1000)):
+    """Most recent reports first (map pins for the app)."""
+    return {"incidents": _load_incidents()[-limit:][::-1],
+            "total_in_file": len(_load_incidents())}
+
+
 @app.get("/coverage")
 def coverage(area: str = Query("demo", description="demo|test|nova")):
     file = _coverage_file(area)
@@ -315,6 +377,5 @@ async def detect_endpoint(file: UploadFile = File(), conf: float = Form(0.25)):
         return {"detections": detect(data, conf=conf)}
     except FileNotFoundError:
         raise HTTPException(status_code=503, detail=NO_DATA)
-    except Exception:
-        from PIL import UnidentifiedImageError
+    except UnidentifiedImageError:
         raise HTTPException(status_code=400, detail="unrecognized/corrupt image upload")
