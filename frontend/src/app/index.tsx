@@ -182,10 +182,11 @@ export default function HomeScreen() {
         1,
         Math.round((result.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
       );
-      const detour =
-        result.straight_m && result.ratio
-          ? ` · ${result.ratio}× straight line`
-          : "";
+      // const detour =
+      //   result.straight_m && result.ratio
+      //     ? ` · ${result.ratio}× straight line`
+      //     : "";
+      const detour = "";
       setRouteStatus(
         `${km} km · about ${mins} min${detour} · ${result.path.length} segments`,
       );
@@ -270,7 +271,10 @@ export default function HomeScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <View
-              style={[styles.mapCard, { borderColor: colors.backgroundElement }]}
+              style={[
+                styles.mapCard,
+                { borderColor: colors.backgroundElement },
+              ]}
             >
               <MapView
                 ref={mapRef}
@@ -343,7 +347,10 @@ export default function HomeScreen() {
               </MapView>
             </View>
 
-            <View style={styles.plannerContent} accessibilityLabel="Route planner">
+            <View
+              style={styles.plannerContent}
+              accessibilityLabel="Route planner"
+            >
               <View style={styles.plannerCard}>
                 <View style={styles.plannerHeaderRow}>
                   <ThemedText
@@ -369,9 +376,15 @@ export default function HomeScreen() {
                       <View
                         style={[
                           styles.svcDot,
-                          svcState === "offline" && { backgroundColor: "#e74c3c" },
-                          svcState === "warming" && { backgroundColor: "#f1c40f" },
-                          svcState === "checking" && { backgroundColor: "#888" },
+                          svcState === "offline" && {
+                            backgroundColor: "#e74c3c",
+                          },
+                          svcState === "warming" && {
+                            backgroundColor: "#f1c40f",
+                          },
+                          svcState === "checking" && {
+                            backgroundColor: "#888",
+                          },
                         ]}
                       />
                       <ThemedText
@@ -395,7 +408,9 @@ export default function HomeScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Use demo locations"
                   >
-                    <ThemedText style={styles.textChipText}>Demo route</ThemedText>
+                    <ThemedText style={styles.textChipText}>
+                      Demo route
+                    </ThemedText>
                   </TouchableOpacity>
                 </View>
 
@@ -476,12 +491,19 @@ export default function HomeScreen() {
                       { backgroundColor: "rgba(46, 204, 113, 0.12)" },
                     ]}
                   >
-                    <MaterialIcons name="my-location" size={16} color="#2ecc71" />
+                    <MaterialIcons
+                      name="my-location"
+                      size={16}
+                      color="#2ecc71"
+                    />
                   </View>
                   <TextInput
                     style={[
                       styles.input,
-                      { color: colors.text, borderColor: colors.backgroundElement },
+                      {
+                        color: colors.text,
+                        borderColor: colors.backgroundElement,
+                      },
                     ]}
                     placeholder="Starting point (GPS, node id, or lat,lng)"
                     placeholderTextColor="#888"
@@ -532,7 +554,10 @@ export default function HomeScreen() {
                   <TextInput
                     style={[
                       styles.input,
-                      { color: colors.text, borderColor: colors.backgroundElement },
+                      {
+                        color: colors.text,
+                        borderColor: colors.backgroundElement,
+                      },
                     ]}
                     placeholder="Destination (node id, or lat,lng)"
                     placeholderTextColor="#888"
@@ -569,7 +594,11 @@ export default function HomeScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Find the safest pedestrian route"
                 >
-                  <MaterialIcons name="verified-user" size={18} color="#ffffff" />
+                  <MaterialIcons
+                    name="verified-user"
+                    size={18}
+                    color="#ffffff"
+                  />
                   <ThemedText style={styles.actionButtonText}>
                     {finding ? "Routing…" : "Find safer route"}
                   </ThemedText>
@@ -619,8 +648,8 @@ export default function HomeScreen() {
                     themeColor="textSecondary"
                     style={styles.summaryMeta}
                   >
-                    Snap: {route.snap.start_m} m start, {route.snap.goal_m} m end ·
-                    network distance {route.cost} m
+                    {/* Snap: {route.snap.start_m} m start, {route.snap.goal_m} m
+                    end · network distance {route.cost} m */}
                   </ThemedText>
                 </ThemedView>
               )}

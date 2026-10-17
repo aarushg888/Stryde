@@ -36,7 +36,44 @@ import pickle
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO = ROOT  # backend/.. == repo root
 
-
+cost_specs = [
+    {
+        "crossing_base":2,
+        "crossing_length":4,
+        "unknown": 300,
+        "vehicle": 40,
+        "bicycle": 800,
+        "pedestrians":2000,
+        "fatal_pedestrian": 10**6
+    },
+    {   
+        "crossing_base":2,
+        "crossing_length":3,
+        "unknown": 200,
+        "vehicle": 25,
+        "bicycle": 450,
+        "pedestrians":1500,
+        "fatal_pedestrian": 10**5
+    },
+    {
+        "crossing_base":2,
+        "crossing_length":3,
+        "unknown": 100,
+        "vehicle": 10,
+        "bicycle": 200,
+        "pedestrians":800,
+        "fatal_pedestrian": 10**4
+    },
+    {
+        "crossing_base": 0,
+        "crossing_length":0,
+        "unknown": 0,
+        "vehicle": 0,
+        "bicycle": 0,
+        "pedestrians":0,
+        "fatal_pedestrian": 0
+    },
+]
 def _load_graph_osm():
     data = REPO / "data" / "osm" / "pickle"
     with open(data / "node_latlng.pkl", 'rb') as file:
@@ -67,29 +104,29 @@ GRAPH, latlngs = _load_graph_osm()
 def heuristic(node_ll, goal_ll) -> float:
     heuristic_cost = _haversine(node_ll,goal_ll)
     return heuristic_cost
-def generate_a_star(state, explored, graph):
+def generate_a_star(state, explored, graph, cost_spec):
    path = [state]
    cost = 0
    parent = state
    current = explored[parent][0]
    while current != "s":
       node_ll = latlngs.get(parent)
-      cost += get_accessibility_costs(current, parent, node_ll, graph)      
+      cost += get_accessibility_costs(current, parent, node_ll, graph, cost_spec)      
       cost += graph[1][(current,parent)]
       path.append(current)
       parent = current
       current = explored[parent][0]
    return path[::-1], cost
 
-def get_accessibility_costs(s,a,node_ll, graph):
+def get_accessibility_costs(s,a,node_ll, graph, cost_spec):
     type = graph[2][(s,a)]
     accessibility_cost = 0
     if (type == "crossing" or type == "crosswalk") and node_ll:
-        accessibility_cost += 2+4*graph[1][(s,a)] + get_incident_score(node_ll)
+        accessibility_cost += cost_spec["crossing_base"]+cost_spec["crossing_length"]*graph[1][(s,a)] + get_incident_score(node_ll,cost_spec)
     if type == "unknown":
-        accessibility_cost += 300 + get_incident_score(node_ll)
+        accessibility_cost += cost_spec["unknown"] + get_incident_score(node_ll, cost_spec)
     return accessibility_cost
-def a_star(start, goal, graph, heuristic=heuristic):
+def a_star(start, goal, graph,cost_spec, heuristic=heuristic):
    if start not in graph[0]:
       raise HTTPException(status_code=404, detail=f"Node '{start}' not in graph")
    if goal not in graph[0]:
@@ -105,11 +142,11 @@ def a_star(start, goal, graph, heuristic=heuristic):
          continue
       if s == goal:
          print("Goal PC: ", pc)
-         path, total_cost = generate_a_star(s, explored, graph)
+         path, total_cost = generate_a_star(s, explored, graph, cost_spec)
          return path, total_cost
       for a in graph[0][s]:  #graph[3] is neighbors
         node_ll = latlngs.get(a)
-        accessibility_cost = get_accessibility_costs(s,a,node_ll,graph)
+        accessibility_cost = get_accessibility_costs(s,a,node_ll,graph,cost_spec)
         new_pc = pc + graph[1][(s,a)] + accessibility_cost
         new_tc = new_pc + heuristic(node_ll,goal_ll)
         if a not in explored or new_tc < explored[a][1]:
@@ -202,68 +239,53 @@ def search(start: str = Query(...), goal: str = Query(...)):
     s_cands = _resolve_candidates(s_start)
     g_cands = _resolve_candidates(s_goal)
 
-    path = cost = s_used = g_used = None
-    tried = 0
-    for sc in s_cands:
-        for gc in g_cands:
-            tried += 1
-            if tried > 24:
+    final_paths = []
+    for cost_spec in cost_specs:
+        path = cost = s_used = g_used = None
+        tried = 0
+        for sc in s_cands:
+            for gc in g_cands:
+                tried += 1
+                if tried > 24:
+                    break
+                result = a_star(sc["node"], gc["node"], GRAPH, cost_spec, heuristic)
+                if result is not None:
+                    path, cost = result
+                    s_used, g_used = sc, gc
+                    break
+            if path:
                 break
-            result = a_star(sc["node"], gc["node"], GRAPH)
-            if result is not None:
-                path, cost = result
-                s_used, g_used = sc, gc
-                break
-        if path:
-            break
-    if path is None:
-        raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
+        if path is None:
+            raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
 
-    # Polyline draws the entered endpoints (lat,lng inputs) through the snapped
-    # nodes, so the user sees the full walk, including the two snap walks.
-    s_point = None
-    g_point = None
-    if "," in s_start:
-        try:
-            s_point = [float(v) for v in s_start.split(",")]
-        except ValueError:
-            pass
-    if "," in s_goal:
-        try:
-            g_point = [float(v) for v in s_goal.split(",")]
-        except ValueError:
-            pass
+        # Polyline draws the entered endpoints (lat,lng inputs) through the snapped
+        # nodes, so the user sees the full walk, including the two snap walks.
+        s_point = None
+        g_point = None
+        if "," in s_start:
+            try:
+                s_point = [float(v) for v in s_start.split(",")]
+            except ValueError:
+                pass
+        if "," in s_goal:
+            try:
+                g_point = [float(v) for v in s_goal.split(",")]
+            except ValueError:
+                pass
 
-    geometry = [p for p in ([s_point] if s_point else [])]
-    for n in path:
-        ll = latlngs.get(n)
-        if ll:
-            geometry.append(ll)
-    geometry += [p for p in ([g_point] if g_point else [])]
-    geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
-    if s_used is None or g_used is None: return
+        geometry = [p for p in ([s_point] if s_point else [])]
+        for n in path:
+            ll = latlngs.get(n)
+            if ll:
+                geometry.append(ll)
+        geometry += [p for p in ([g_point] if g_point else [])]
+        geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
+        if s_used is None or g_used is None: return
 
-    snap_connect = s_used["dist_m"] + g_used["dist_m"]
-
-    straight_m = None
-    if s_point and g_point:
-        straight_m = round(_haversine(s_point, g_point), 1)
-    return {
-        "start": start, "goal": goal,
-        "start_node": s_used["node"], "goal_node": g_used["node"],
-        "snap": {"start_m": s_used["dist_m"], "goal_m": g_used["dist_m"]},
-        "snapped_connect_m": round(snap_connect, 1),
-        "snapped_points": {
-            "start": s_used["latlng"], "goal": g_used["latlng"]},
-        "snap_candidates_tried": tried,
-        "path": path, "cost": cost,               # tube-only network meters
-        "total_cut_m": round(cost + snap_connect, 1),  # incl. both snaps
-        "straight_m": straight_m,  # crow-flies; null for node-id inputs
-        "ratio": round(round(cost + snap_connect, 1) / straight_m, 3)
-                  if straight_m and straight_m > 0 else None,
-        "geometry": geometry,
-    }
-
+        snap_connect = s_used["dist_m"] + g_used["dist_m"]
+        final_paths.append( {"path": path, "cost": cost, "total_cut_m": round(cost + snap_connect, 1),  "geometry": geometry})
+    # return {"paths" : final_paths or None}
+    return final_paths[3]
 
 _COVERAGE = {
     "demo": "data/demo_area_inferred.geojson",
@@ -293,15 +315,15 @@ incident_df = (pd.read_csv(_INCIDENTS_PATH)
 x, y = to_xy(incident_df['LATITUDE'].to_numpy(), incident_df['LONGITUDE'].to_numpy())
 tree = KDTree(np.column_stack([x, y]))
 
-def get_incident_score(ll, k=20):
-    idx = tree.query_ball_point(to_xy(ll[0], ll[1]), r=k)
+def get_incident_score(ll,cost_spec):
+    idx = tree.query_ball_point(to_xy(ll[0], ll[1]), r=20)
     if not idx:
         return 0
     nearby = incident_df.iloc[idx]     
-    val = (nearby['TOTAL_VEHICLES'].sum() * 40
-            + nearby['TOTAL_BICYCLES'].sum() * 800
-            + nearby['TOTAL_PEDESTRIANS'].sum() * 2000
-            + nearby['FATAL_PEDESTRIAN'].sum() * 10**6)
+    val = (nearby['TOTAL_VEHICLES'].sum() * cost_spec["vehicle"]
+            + nearby['TOTAL_BICYCLES'].sum() * cost_spec["bicycle"]
+            + nearby['TOTAL_PEDESTRIANS'].sum() * cost_spec["pedestrians"]
+            + nearby['FATAL_PEDESTRIAN'].sum() * cost_spec["fatal_pedestrian"])
     return val
 
 
