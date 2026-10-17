@@ -122,37 +122,52 @@ app.add_middleware(
 )
 
 
-def _nearest_node(lat, lng):
-    """Nearest graph node to a lat,lng (haversine over node coords)."""
+def _nearest_nodes(lat, lng, k: int = 6):
+    """k nearest graph nodes to a lat,lng (haversine over node coords)."""
     latlngs = _META.get("node_latlng") or {}
     if not latlngs:
         raise HTTPException(status_code=400, detail="graph has no coordinates; pass a node id")
-    best, best_m = None, float("inf")
+    scored = []
     for n, (nlat, nlng) in latlngs.items():
-        # local equirectangular projection: good enough at neighborhood scale
         dy = (nlat - lat) * 111_320.0
         dx = (nlng - lng) * 111_320.0 * math.cos(math.radians(lat))
-        d = math.hypot(dx, dy)
-        if d < best_m:
-            best, best_m = n, d
-    if best_m > 400:
-        raise HTTPException(status_code=404, detail=f"no graph node within 400 m of {lat},{lng}")
-    return best, best_m
+        scored.append((dx * dx + dy * dy, n, nlat, nlng))
+    scored.sort(key=lambda t: t[0])
+    out = []
+    for d2, n, nlat, nlng in scored[:k]:
+        d = math.sqrt(d2)
+        if d <= 400:
+            out.append({"node": n, "dist_m": round(d, 1),
+                        "latlng": [round(nlat, 6), round(nlng, 6)]})
+    return out
 
 
-def _resolve_node(token: str):
-    """'n123' -> node id; '38.9,-77.03' -> nearest node id."""
+def _resolve_candidates(token: str):
+    """Node id -> one candidate; 'lat,lng' -> up to 6 nearest node candidates."""
     t = token.strip()
     if t in GRAPH[0]:
-        return t, 0.0
+        return [{"node": t, "dist_m": 0.0, "latlng": None}]
     parts = t.split(",")
     if len(parts) == 2:
         try:
             lat, lng = float(parts[0]), float(parts[1])
         except ValueError:
             raise HTTPException(status_code=400, detail=f"cannot parse '{t}' (node id or 'lat,lng')")
-        return _nearest_node(lat, lng)
+        cands = _nearest_nodes(lat, lng)
+        if not cands:
+            raise HTTPException(status_code=404,
+                                detail=NO_GRAPH_NEARBY.format(lat=lat, lng=lng))
+        return cands
     raise HTTPException(status_code=400, detail=f"unknown node '{t}' (use node id or 'lat,lng')")
+
+
+NO_GRAPH_NEARBY = (
+    "No sidewalk-graph node within 400 m of {lat},{lng} — is the backend serving "
+    "the same coverage area as the app? Check /health coverage and /coverage.")
+NO_PATH_NEARBY = (
+    "No walking connection between '{start}' and '{goal}': every attempt landed in "
+    "different connected sidewalk components (heal coverage or pick points closer "
+    "to a covered corridor).")
 
 
 @app.get("/")
@@ -162,25 +177,67 @@ def root():
 
 @app.get("/search")
 def search(start: str = Query(...), goal: str = Query(...)):
-    s_node, s_m = _resolve_node(start)
-    g_node, g_m = _resolve_node(goal)
-    result = a_star(s_node, g_node, GRAPH)
-    if result is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No walking connection from '{start}' to '{goal}': they lie in different "
-                   f"connected sidewalk components (search heal coverage or try a closer pair)")
-    path, cost = result
+    s_start = start.strip()
+    s_goal = goal.strip()
+    s_cands = _resolve_candidates(s_start)
+    g_cands = _resolve_candidates(s_goal)
     latlngs = _META.get("node_latlng") or {}
-    geometry = [latlngs.get(n) for n in path]
-    geometry = [[p[0], p[1]] for p in geometry if p] if latlngs else []
+
+    # The aerial graph is fragmented into sidewalk components; a single nearest
+    # node per side can easily pair across components. Try the nearest few
+    # candidates on each side until a walkable path exists.
+    path = cost = s_used = g_used = None
+    tried = 0
+    s_latlng = next((c["latlng"] for c in s_cands), None)  # unused; endpoints come below
+    for sc in s_cands:
+        for gc in g_cands:
+            tried += 1
+            if tried > 24:
+                break
+            result = a_star(sc["node"], gc["node"], GRAPH)
+            if result is not None:
+                path, cost = result
+                s_used, g_used = sc, gc
+                break
+        if path:
+            break
+    if path is None:
+        raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
+
+    # Polyline draws the entered endpoints (lat,lng inputs) through the snapped
+    # nodes, so the user sees the full walk, including the two snap walks.
+    s_point = None
+    g_point = None
+    if "," in s_start:
+        try:
+            s_point = [float(v) for v in s_start.split(",")]
+        except ValueError:
+            pass
+    if "," in s_goal:
+        try:
+            g_point = [float(v) for v in s_goal.split(",")]
+        except ValueError:
+            pass
+
+    geometry = [p for p in ([s_point] if s_point else [])]
+    for n in path:
+        ll = latlngs.get(n)
+        if ll:
+            geometry.append(ll)
+    geometry += [p for p in ([g_point] if g_point else [])]
+    geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
+
+    snap_connect = s_used["dist_m"] + g_used["dist_m"]
     return {
         "start": start, "goal": goal,
-        "start_node": s_node, "goal_node": g_node,
-        "snap": {"start_m": round(s_m, 1), "goal_m": round(g_m, 1)},
-        "snapped_connect_m": round(s_m + g_m, 1),
+        "start_node": s_used["node"], "goal_node": g_used["node"],
+        "snap": {"start_m": s_used["dist_m"], "goal_m": g_used["dist_m"]},
+        "snapped_connect_m": round(snap_connect, 1),
+        "snapped_points": {
+            "start": s_used["latlng"], "goal": g_used["latlng"]},
+        "snap_candidates_tried": tried,
         "path": path, "cost": cost,               # tube-only network meters
-        "total_cut_m": round(cost + s_m + g_m, 1),  # incl. both snaps
+        "total_cut_m": round(cost + snap_connect, 1),  # incl. both snaps
         "geometry": geometry,
         "graph": {"nodes": _META.get("nodes"), "tubes": _META.get("tubes")},
     }

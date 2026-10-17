@@ -36,6 +36,23 @@ export type Health = {
   coverage: string[];
 };
 
+/**
+ * Wrapper so connection failures (phone hitting `localhost`, backend down) come
+ * back as one clear, actionable message instead of a bare TypeError.
+ */
+async function request(path: string, init?: RequestInit): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, init);
+  } catch {
+    throw new Error(
+      `Cannot reach the backend at ${BASE_URL}. Start it: uvicorn backend.main:app --host 0.0.0.0 --port 8100. ` +
+      "On a physical phone, use your computer's LAN IP: EXPO_PUBLIC_API_URL=http://<mac-ip>:8100");
+  }
+  if (!res.ok) await parseError(res);
+  return res;
+}
+
 async function parseError(res: Response): Promise<never> {
   let detail = `HTTP ${res.status}`;
   try {
@@ -51,21 +68,18 @@ export const api = {
   baseUrl: BASE_URL,
 
   async health(): Promise<Health> {
-    const res = await fetch(`${BASE_URL}/health`);
-    if (!res.ok) await parseError(res);
+    const res = await request('/health');
     return res.json();
   },
 
   async searchRoute(start: string, goal: string): Promise<RouteResult> {
     const qs = new URLSearchParams({ start, goal });
-    const res = await fetch(`${BASE_URL}/search?${qs}`);
-    if (!res.ok) await parseError(res);
+    const res = await request(`/search?${qs}`);
     return res.json();
   },
 
   async coverage(area: 'demo' | 'test' | 'nova'): Promise<GeoJSON.FeatureCollection> {
-    const res = await fetch(`${BASE_URL}/coverage?area=${area}`);
-    if (!res.ok) await parseError(res);
+    const res = await request(`/coverage?area=${area}`);
     const body = (await res.json()) as { geojson: GeoJSON.FeatureCollection };
     return body.geojson;
   },
@@ -74,8 +88,7 @@ export const api = {
     const data = new FormData();
     data.append('conf', String(conf));
     data.append('file', { uri: fileUri, name: 'hazard.jpg', type: 'image/jpeg' } as unknown as Blob);
-    const res = await fetch(`${BASE_URL}/detect`, { method: 'POST', body: data });
-    if (!res.ok) await parseError(res);
+    const res = await request('/detect', { method: 'POST', body: data });
     return res.json();
   },
 };
