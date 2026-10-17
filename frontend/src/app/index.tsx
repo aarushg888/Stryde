@@ -11,7 +11,10 @@ import {
 import { MaterialIcons } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import {
+  Keyboard,
+  KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
@@ -43,6 +46,7 @@ export default function HomeScreen() {
   const [routeError, setRouteError] = useState<string | null>(null);
   const [routeStatus, setRouteStatus] = useState<string | null>(null);
   const [finding, setFinding] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [svcState, setSvcState] = useState<
     "checking" | "online" | "warming" | "offline"
   >("checking");
@@ -68,6 +72,19 @@ export default function HomeScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener("keyboardDidShow", () =>
+      setKeyboardVisible(true),
+    );
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () =>
+      setKeyboardVisible(false),
+    );
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
   const loadDemo = () => {
     setStartLocation(DEMO_START);
     setDestination(DEMO_GOAL);
@@ -81,6 +98,7 @@ export default function HomeScreen() {
   };
 
   const handleFindRoute = async () => {
+    Keyboard.dismiss();
     if (!startLocation.trim() || !destination.trim()) {
       setRouteStatus("Enter a start and a destination to plan a route.");
       return;
@@ -132,290 +150,332 @@ export default function HomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-        <View style={styles.header}>
-          <ThemedText type="title" style={styles.title}>
-            Stryde
-          </ThemedText>
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.tagline}
-          >
-            Accessible pedestrian routing
-          </ThemedText>
-        </View>
-
-        <View
-          style={[styles.mapCard, { borderColor: colors.backgroundElement }]}
-        >
-          <MapView
-            ref={mapRef}
-            style={styles.map}
-            initialRegion={DC_REGION}
-            showsUserLocation={false}
-            showsMyLocationButton={false}
-            toolbarEnabled={false}
-          >
-            {route && routeCoords.length > 1 && (
-              <>
-                <Polyline
-                  coordinates={routeCoords}
-                  strokeWidth={7}
-                  strokeColor="rgba(255,255,255,0.85)"
-                  lineCap="round"
-                  lineJoin="round"
-                />
-                <Polyline
-                  coordinates={routeCoords}
-                  strokeWidth={4}
-                  strokeColor={scheme === "dark" ? "#2ecc71" : "#27ae60"}
-                  lineCap="round"
-                  lineJoin="round"
-                />
-                <Marker
-                  coordinate={routeCoords[0]}
-                  title="Start"
-                  description={route.start_node}
-                  pinColor="#2ecc71"
-                />
-                <Marker
-                  coordinate={routeCoords[routeCoords.length - 1]}
-                  title="Destination"
-                  description={route.goal_node}
-                  pinColor="#e74c3c"
-                />
-              </>
-            )}
-          </MapView>
-        </View>
-
-        {/* Route planner panel scrolls independently of the map */}
-        <View style={{ flex: 1 }} accessibilityLabel="Route planner">
-          <View style={styles.plannerCard}>
-            <View style={styles.plannerHeaderRow}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={
+          Platform.OS === "ios"
+            ? "padding"
+            : Platform.OS === "android"
+              ? "height"
+              : undefined
+        }
+      >
+        <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+          <View style={styles.header}>
+            <View style={styles.headerSide} />
+            <View style={styles.headerTitle}>
+              <ThemedText type="title" style={styles.title}>
+                Stryde
+              </ThemedText>
               <ThemedText
                 type="small"
                 themeColor="textSecondary"
-                style={styles.plannerLabel}
+                style={styles.tagline}
               >
-                Plan a route
+                Accessible pedestrian routing
               </ThemedText>
-              {svcState !== "online" && (
-                <View
-                  accessibilityLabel={`Backend status: ${svcState}`}
-                  style={[
-                    styles.svcPill,
-                    svcState === "offline" && {
-                      backgroundColor: "rgba(231,76,60,0.12)",
-                    },
-                    svcState === "warming" && {
-                      backgroundColor: "rgba(241,196,15,0.15)",
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.svcDot,
-                      svcState === "offline" && { backgroundColor: "#e74c3c" },
-                      svcState === "warming" && { backgroundColor: "#f1c40f" },
-                      svcState === "checking" && { backgroundColor: "#888" },
-                    ]}
-                  />
-                  <ThemedText
-                    style={[
-                      styles.svcPillText,
-                      svcState === "offline" && { color: "#e74c3c" },
-                      svcState === "warming" && { color: "#b7950b" },
-                    ]}
-                  >
-                    {svcState === "warming"
-                      ? "Detector warming up"
-                      : svcState === "offline"
-                        ? "Backend offline"
-                        : "Checking…"}
-                  </ThemedText>
-                </View>
-              )}
+            </View>
+            {keyboardVisible ? (
               <TouchableOpacity
-                style={styles.textChip}
-                onPress={loadDemo}
+                style={styles.dismissKeyboardButton}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setKeyboardVisible(false);
+                }}
                 accessibilityRole="button"
-                accessibilityLabel="Use demo locations"
+                accessibilityLabel="Hide keyboard"
               >
-                <ThemedText style={styles.textChipText}>Demo route</ThemedText>
+                <MaterialIcons
+                  name="keyboard-hide"
+                  size={18}
+                  color={colors.text}
+                />
+                <ThemedText type="small">Done</ThemedText>
               </TouchableOpacity>
-            </View>
-
-            {/* Start point */}
-            <View style={styles.fieldRow}>
-              <View
-                style={[
-                  styles.iconBadge,
-                  { backgroundColor: "rgba(46, 204, 113, 0.12)" },
-                ]}
-              >
-                <MaterialIcons name="my-location" size={16} color="#2ecc71" />
-              </View>
-              <TextInput
-                style={[
-                  styles.input,
-                  { color: colors.text, borderColor: colors.backgroundElement },
-                ]}
-                placeholder="Starting point (GPS, node id, or lat,lng)"
-                placeholderTextColor="#888"
-                value={startLocation}
-                onChangeText={setStartLocation}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="ascii-capable"
-                returnKeyType="next"
-                submitBehavior="blurAndSubmit"
-                accessibilityLabel="Starting point"
-                accessibilityHint="Type a graph node id or latitude,longitude pair"
-                enterKeyHint="next"
-              />
-              {startLocation.length > 0 && (
-                <TouchableOpacity
-                  style={styles.clearButton}
-                  onPress={() => setStartLocation("")}
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear starting point"
-                >
-                  <MaterialIcons name="close" size={16} color="#888" />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Ends swap control */}
-            <TouchableOpacity
-              style={styles.swapButton}
-              onPress={swapEnds}
-              accessibilityRole="button"
-              accessibilityLabel="Swap starting point and destination"
-              activeOpacity={0.7}
-            >
-              <MaterialIcons name="swap-vert" size={18} color="#3498db" />
-            </TouchableOpacity>
-
-            {/* Destination */}
-            <View style={styles.fieldRow}>
-              <View
-                style={[
-                  styles.iconBadge,
-                  { backgroundColor: "rgba(231, 76, 60, 0.12)" },
-                ]}
-              >
-                <MaterialIcons name="flag" size={16} color="#e74c3c" />
-              </View>
-              <TextInput
-                style={[
-                  styles.input,
-                  { color: colors.text, borderColor: colors.backgroundElement },
-                ]}
-                placeholder="Destination (node id, or lat,lng)"
-                placeholderTextColor="#888"
-                value={destination}
-                onChangeText={setDestination}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="ascii-capable"
-                returnKeyType="go"
-                submitBehavior="submit"
-                onSubmitEditing={handleFindRoute}
-                accessibilityLabel="Destination"
-                accessibilityHint="Type a graph node id or latitude,longitude pair, then search"
-                enterKeyHint="go"
-              />
-              {destination.length > 0 && (
-                <TouchableOpacity
-                  style={styles.clearButton}
-                  onPress={() => setDestination("")}
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear destination"
-                >
-                  <MaterialIcons name="close" size={16} color="#888" />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Find route CTA */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleFindRoute}
-              disabled={finding}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Find the safest pedestrian route"
-            >
-              <MaterialIcons name="verified-user" size={18} color="#ffffff" />
-              <ThemedText style={styles.actionButtonText}>
-                {finding ? "Routing…" : "Find safer route"}
-              </ThemedText>
-            </TouchableOpacity>
+            ) : (
+              <View style={styles.headerSide} />
+            )}
           </View>
 
-          {/* Result / error banner */}
-          {(routeError || routeStatus) && (
-            <ThemedView
-              type="backgroundElement"
-              style={[
-                styles.statusCard,
-                routeError ? styles.statusCardError : null,
-              ]}
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            keyboardDismissMode={
+              Platform.OS === "ios" ? "interactive" : "on-drag"
+            }
+            keyboardShouldPersistTaps="handled"
+          >
+            <View
+              style={[styles.mapCard, { borderColor: colors.backgroundElement }]}
             >
-              <MaterialIcons
-                name={routeError ? "error-outline" : "route"}
-                size={18}
-                color={routeError ? "#e74c3c" : "#2ecc71"}
-              />
-              <ThemedText
-                style={[styles.statusText, { color: colors.text }]}
-                adjustsFontSizeToFit={false}
+              <MapView
+                ref={mapRef}
+                style={styles.map}
+                initialRegion={DC_REGION}
+                showsUserLocation={false}
+                showsMyLocationButton={false}
+                toolbarEnabled={false}
               >
-                {routeError ?? routeStatus}
-              </ThemedText>
-            </ThemedView>
-          )}
+                {route && routeCoords.length > 1 && (
+                  <>
+                    <Polyline
+                      coordinates={routeCoords}
+                      strokeWidth={7}
+                      strokeColor="rgba(255,255,255,0.85)"
+                      lineCap="round"
+                      lineJoin="round"
+                    />
+                    <Polyline
+                      coordinates={routeCoords}
+                      strokeWidth={4}
+                      strokeColor={scheme === "dark" ? "#2ecc71" : "#27ae60"}
+                      lineCap="round"
+                      lineJoin="round"
+                    />
+                    <Marker
+                      coordinate={routeCoords[0]}
+                      title="Start"
+                      description={route.start_node}
+                      pinColor="#2ecc71"
+                    />
+                    <Marker
+                      coordinate={routeCoords[routeCoords.length - 1]}
+                      title="Destination"
+                      description={route.goal_node}
+                      pinColor="#e74c3c"
+                    />
+                  </>
+                )}
+              </MapView>
+            </View>
 
-          {/* Route summary when a path exists */}
-          {route && !routeError && (
-            <ThemedView type="backgroundElement" style={styles.summaryCard}>
-              <View style={styles.summaryRow}>
-                <View style={styles.summaryDot} />
-                <ThemedText numberOfLines={1} style={styles.summaryText}>
-                  {route.start_node}
-                </ThemedText>
+            <View style={styles.plannerContent} accessibilityLabel="Route planner">
+              <View style={styles.plannerCard}>
+                <View style={styles.plannerHeaderRow}>
+                  <ThemedText
+                    type="small"
+                    themeColor="textSecondary"
+                    style={styles.plannerLabel}
+                  >
+                    Plan a route
+                  </ThemedText>
+                  {svcState !== "online" && (
+                    <View
+                      accessibilityLabel={`Backend status: ${svcState}`}
+                      style={[
+                        styles.svcPill,
+                        svcState === "offline" && {
+                          backgroundColor: "rgba(231,76,60,0.12)",
+                        },
+                        svcState === "warming" && {
+                          backgroundColor: "rgba(241,196,15,0.15)",
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.svcDot,
+                          svcState === "offline" && { backgroundColor: "#e74c3c" },
+                          svcState === "warming" && { backgroundColor: "#f1c40f" },
+                          svcState === "checking" && { backgroundColor: "#888" },
+                        ]}
+                      />
+                      <ThemedText
+                        style={[
+                          styles.svcPillText,
+                          svcState === "offline" && { color: "#e74c3c" },
+                          svcState === "warming" && { color: "#b7950b" },
+                        ]}
+                      >
+                        {svcState === "warming"
+                          ? "Detector warming up"
+                          : svcState === "offline"
+                            ? "Backend offline"
+                            : "Checking…"}
+                      </ThemedText>
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    style={styles.textChip}
+                    onPress={loadDemo}
+                    accessibilityRole="button"
+                    accessibilityLabel="Use demo locations"
+                  >
+                    <ThemedText style={styles.textChipText}>Demo route</ThemedText>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Start point */}
+                <View style={styles.fieldRow}>
+                  <View
+                    style={[
+                      styles.iconBadge,
+                      { backgroundColor: "rgba(46, 204, 113, 0.12)" },
+                    ]}
+                  >
+                    <MaterialIcons name="my-location" size={16} color="#2ecc71" />
+                  </View>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      { color: colors.text, borderColor: colors.backgroundElement },
+                    ]}
+                    placeholder="Starting point (GPS, node id, or lat,lng)"
+                    placeholderTextColor="#888"
+                    value={startLocation}
+                    onChangeText={setStartLocation}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="ascii-capable"
+                    returnKeyType="next"
+                    submitBehavior="blurAndSubmit"
+                    accessibilityLabel="Starting point"
+                    accessibilityHint="Type a graph node id or latitude,longitude pair"
+                    enterKeyHint="next"
+                  />
+                  {startLocation.length > 0 && (
+                    <TouchableOpacity
+                      style={styles.clearButton}
+                      onPress={() => setStartLocation("")}
+                      accessibilityRole="button"
+                      accessibilityLabel="Clear starting point"
+                    >
+                      <MaterialIcons name="close" size={16} color="#888" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Ends swap control */}
+                <TouchableOpacity
+                  style={styles.swapButton}
+                  onPress={swapEnds}
+                  accessibilityRole="button"
+                  accessibilityLabel="Swap starting point and destination"
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons name="swap-vert" size={18} color="#3498db" />
+                </TouchableOpacity>
+
+                {/* Destination */}
+                <View style={styles.fieldRow}>
+                  <View
+                    style={[
+                      styles.iconBadge,
+                      { backgroundColor: "rgba(231, 76, 60, 0.12)" },
+                    ]}
+                  >
+                    <MaterialIcons name="flag" size={16} color="#e74c3c" />
+                  </View>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      { color: colors.text, borderColor: colors.backgroundElement },
+                    ]}
+                    placeholder="Destination (node id, or lat,lng)"
+                    placeholderTextColor="#888"
+                    value={destination}
+                    onChangeText={setDestination}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="ascii-capable"
+                    returnKeyType="go"
+                    submitBehavior="submit"
+                    onSubmitEditing={handleFindRoute}
+                    accessibilityLabel="Destination"
+                    accessibilityHint="Type a graph node id or latitude,longitude pair, then search"
+                    enterKeyHint="go"
+                  />
+                  {destination.length > 0 && (
+                    <TouchableOpacity
+                      style={styles.clearButton}
+                      onPress={() => setDestination("")}
+                      accessibilityRole="button"
+                      accessibilityLabel="Clear destination"
+                    >
+                      <MaterialIcons name="close" size={16} color="#888" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Find route CTA */}
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={handleFindRoute}
+                  disabled={finding}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Find the safest pedestrian route"
+                >
+                  <MaterialIcons name="verified-user" size={18} color="#ffffff" />
+                  <ThemedText style={styles.actionButtonText}>
+                    {finding ? "Routing…" : "Find safer route"}
+                  </ThemedText>
+                </TouchableOpacity>
               </View>
-              <View style={[styles.summaryRow, styles.summaryRowLast]}>
-                <View style={[styles.summaryDot, styles.summaryDotGoal]} />
-                <ThemedText numberOfLines={1} style={styles.summaryText}>
-                  {route.goal_node}
-                </ThemedText>
-              </View>
+
+              {/* Result / error banner */}
+              {(routeError || routeStatus) && (
+                <ThemedView
+                  type="backgroundElement"
+                  style={[
+                    styles.statusCard,
+                    routeError ? styles.statusCardError : null,
+                  ]}
+                >
+                  <MaterialIcons
+                    name={routeError ? "error-outline" : "route"}
+                    size={18}
+                    color={routeError ? "#e74c3c" : "#2ecc71"}
+                  />
+                  <ThemedText
+                    style={[styles.statusText, { color: colors.text }]}
+                    adjustsFontSizeToFit={false}
+                  >
+                    {routeError ?? routeStatus}
+                  </ThemedText>
+                </ThemedView>
+              )}
+
+              {/* Route summary when a path exists */}
+              {route && !routeError && (
+                <ThemedView type="backgroundElement" style={styles.summaryCard}>
+                  <View style={styles.summaryRow}>
+                    <View style={styles.summaryDot} />
+                    <ThemedText numberOfLines={1} style={styles.summaryText}>
+                      {route.start_node}
+                    </ThemedText>
+                  </View>
+                  <View style={[styles.summaryRow, styles.summaryRowLast]}>
+                    <View style={[styles.summaryDot, styles.summaryDotGoal]} />
+                    <ThemedText numberOfLines={1} style={styles.summaryText}>
+                      {route.goal_node}
+                    </ThemedText>
+                  </View>
+                  <ThemedText
+                    type="small"
+                    themeColor="textSecondary"
+                    style={styles.summaryMeta}
+                  >
+                    Snap: {route.snap.start_m} m start, {route.snap.goal_m} m end ·
+                    network distance {route.cost} m
+                  </ThemedText>
+                </ThemedView>
+              )}
+
               <ThemedText
                 type="small"
                 themeColor="textSecondary"
-                style={styles.summaryMeta}
+                style={styles.helper}
               >
-                Snap: {route.snap.start_m} m start, {route.snap.goal_m} m end ·
-                network distance {route.cost} m
+                API target: {BASE_URL} — backend must run on port 8100 (README:
+                /search, /detect, /coverage).
               </ThemedText>
-            </ThemedView>
-          )}
 
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            style={styles.helper}
-          >
-            API target: {BASE_URL} — backend must run on port 8100 (README:
-            /search, /detect, /coverage).
-          </ThemedText>
-
-          {Platform.OS === "web" && <WebBadge />}
-        </View>
-      </SafeAreaView>
+              {Platform.OS === "web" && <WebBadge />}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
     </ThemedView>
   );
 }
@@ -425,15 +485,31 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    gap: Spacing.three,
     maxWidth: MaxContentWidth,
     alignSelf: "center",
     width: "100%",
   },
   header: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: Spacing.one,
     paddingTop: Spacing.one,
     paddingBottom: Spacing.one,
+  },
+  headerSide: {
+    width: 72,
+  },
+  headerTitle: {
+    flex: 1,
+    alignItems: "center",
+  },
+  dismissKeyboardButton: {
+    width: 72,
+    minHeight: 36,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: Spacing.one,
   },
   title: {
     textAlign: "center",
@@ -443,6 +519,16 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: "uppercase",
     fontWeight: "600",
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    gap: Spacing.three,
+    paddingBottom: Spacing.three,
+  },
+  plannerContent: {
+    gap: Spacing.three,
   },
   mapCard: {
     height: 250,

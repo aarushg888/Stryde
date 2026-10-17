@@ -16,7 +16,9 @@ def load(out_dir):
     for a, b, w in json.load(open(out_dir / "tubes.json")):
         tubes[(a, b)] = float(w)
     tube_kind = {}
-    for a, b, w in json.load(open(out_dir / "tube_kind.json")):
-        tube_kind[(a, b)] = w
+    tube_kind_path = out_dir / "tube_kind.json"
+    if tube_kind_path.exists():
+        for a, b, kind in json.load(open(tube_kind_path)):
+            tube_kind[(a, b)] = kind
     meta = json.load(open(out_dir / "meta.json"))
     return [adj, tubes, tube_kind], meta
