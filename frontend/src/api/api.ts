@@ -36,6 +36,8 @@ export type RouteResult = {
   goal_node: string;
   snap: { start_m: number; goal_m: number };
   snapped_connect_m: number;
+  straight_m?: number | null; // crow-flies meters (lat,lng inputs only)
+  ratio?: number | null; // total route length / straight line
   path: string[]; // node ids along the route
   cost: number; // network meters (tubes only)
   total_cut_m: number; // including the two snaps

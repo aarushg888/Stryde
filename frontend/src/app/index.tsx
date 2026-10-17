@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Platform, StyleSheet, TextInput, TouchableOpacity, View,
   useColorScheme,
@@ -32,7 +32,25 @@ export default function HomeScreen() {
   const [routeError, setRouteError] = useState<string | null>(null);
   const [routeStatus, setRouteStatus] = useState<string | null>(null);
   const [finding, setFinding] = useState(false);
+  const [svcState, setSvcState] = useState<'checking' | 'online' | 'warming' | 'offline'>('checking');
   const mapRef = React.useRef<MapView>(null);
+
+  // Backend visibility pill: tells users whether the API is reachable before they type.
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const h = await api.health();
+        if (!alive) return;
+        setSvcState(h.ok ? (h.weights ? 'online' : 'warming') : 'offline');
+      } catch {
+        if (alive) setSvcState('offline');
+      }
+    };
+    void poll();
+    const id = setInterval(poll, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   const loadDemo = () => {
     setStartLocation(DEMO_START);
@@ -60,7 +78,8 @@ export default function HomeScreen() {
       setRoute(result);
       const km = (result.total_cut_m / 1000).toFixed(2);
       const mins = Math.max(1, Math.round((result.total_cut_m / 1000) / WALK_SPEED_KMH * 60));
-      setRouteStatus(`${km} km · about ${mins} min · ${result.path.length} segments`);
+      const detour = result.straight_m && result.ratio ? ` · ${result.ratio}× straight line` : '';
+      setRouteStatus(`${km} km · about ${mins} min${detour} · ${result.path.length} segments`);
       if (result.geometry.length > 1) {
         mapRef.current?.fitToCoordinates(
           result.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng })),
@@ -100,8 +119,17 @@ export default function HomeScreen() {
               <>
                 <Polyline
                   coordinates={routeCoords}
+                  strokeWidth={7}
+                  strokeColor="rgba(255,255,255,0.85)"
+                  lineCap="round"
+                  lineJoin="round"
+                />
+                <Polyline
+                  coordinates={routeCoords}
                   strokeWidth={4}
-                  strokeColor="#2ecc71"
+                  strokeColor={scheme === 'dark' ? '#2ecc71' : '#27ae60'}
+                  lineCap="round"
+                  lineJoin="round"
                 />
                 <Marker
                   coordinate={routeCoords[0]}
@@ -127,6 +155,34 @@ export default function HomeScreen() {
               <ThemedText type="small" themeColor="textSecondary" style={styles.plannerLabel}>
                 Plan a route
               </ThemedText>
+              {svcState !== 'online' && (
+                <View
+                  accessibilityLabel={`Backend status: ${svcState}`}
+                  style={[
+                    styles.svcPill,
+                    svcState === 'offline' && { backgroundColor: 'rgba(231,76,60,0.12)' },
+                    svcState === 'warming' && { backgroundColor: 'rgba(241,196,15,0.15)' },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.svcDot,
+                      svcState === 'offline' && { backgroundColor: '#e74c3c' },
+                      svcState === 'warming' && { backgroundColor: '#f1c40f' },
+                      svcState === 'checking' && { backgroundColor: '#888' },
+                    ]}
+                  />
+                  <ThemedText
+                    style={[
+                      styles.svcPillText,
+                      svcState === 'offline' && { color: '#e74c3c' },
+                      svcState === 'warming' && { color: '#b7950b' },
+                    ]}
+                  >
+                    {svcState === 'warming' ? 'Detector warming up' : svcState === 'offline' ? 'Backend offline' : 'Checking…'}
+                  </ThemedText>
+                </View>
+              )}
               <TouchableOpacity
                 style={styles.textChip}
                 onPress={loadDemo}
@@ -328,6 +384,17 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
+  svcPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(149,165,166,0.15)',
+  },
+  svcDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#2ecc71' },
+  svcPillText: { fontSize: 11 },
   textChip: {
     borderWidth: 1,
     borderColor: 'rgba(52, 152, 219, 0.4)',
