@@ -1,29 +1,10 @@
-"""Stryde MVP API — routing + accessibility layers in one service.
-
-Merges the router team's A* /search (start/end nodes over a graph of
-[adjacency, tube-weights]) with the ML layers' data:
-
-  /search    GET  start,goal = node id ("n123") OR "lat,lng"  -> path + cost +
-                   geometry ([[lat,lng],...]) + straight_m/ratio detour metrics
-  /coverage  GET  area=demo|test|nova -> aerial-inferred sidewalk/crosswalk GeoJSON
-  /incidents GET/POST hazard reports (JSONL-backed; map pins for the app)
-  /detect    POST multipart image + conf -> barrier detections (YOLO11s;
-                  503 + clear message while weights are still training)
-  /health    GET  model + graph + coverage status
-
-Real graph: data/router_graph/{adjacency,tubes,meta}.json (built by
-backend/ml/aerial/build_router_graph.py — 3535 nodes, 3401 tubes). Falls back
-to the built-in toy graph when the data dir is absent so the API always runs.
-
-Run:
-  backend/tile2net/.venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8100
-"""
 import heapq
 import json
 import math
 import pathlib
 import time
-
+import concurrent.futures
+import asyncio
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import UnidentifiedImageError
@@ -107,16 +88,17 @@ def heuristic(node_ll, goal_ll) -> float:
 def generate_a_star(state, explored, graph, cost_spec):
    path = [state]
    cost = 0
+   accessibility_cost = 0
    parent = state
    current = explored[parent][0]
    while current != "s":
       node_ll = latlngs.get(parent)
-      cost += get_accessibility_costs(current, parent, node_ll, graph, cost_spec)      
+      accessibility_cost += get_accessibility_costs(current, parent, node_ll, graph, cost_spec)      
       cost += graph[1][(current,parent)]
       path.append(current)
       parent = current
       current = explored[parent][0]
-   return path[::-1], cost
+   return path[::-1], cost, accessibility_cost
 
 def get_accessibility_costs(s,a,node_ll, graph, cost_spec):
     type = graph[2][(s,a)]
@@ -142,8 +124,8 @@ def a_star(start, goal, graph,cost_spec, heuristic=heuristic):
          continue
       if s == goal:
          print("Goal PC: ", pc)
-         path, total_cost = generate_a_star(s, explored, graph, cost_spec)
-         return path, total_cost
+         path, cost, ac = generate_a_star(s, explored, graph, cost_spec)
+         return path, cost, ac
       for a in graph[0][s]:  #graph[3] is neighbors
         node_ll = latlngs.get(a)
         accessibility_cost = get_accessibility_costs(s,a,node_ll,graph,cost_spec)
@@ -231,61 +213,84 @@ def _haversine(a, b):
            * (1 - math.cos((lng2 - lng1) * p)) / 2.0)
     return 12742_000.0 * math.asin(math.sqrt(hav))
 
+def cost_spec_caller(start: str, goal: str, s_cands, g_cands, cost_spec):
+    path = cost = s_used = g_used = accessibility_cost = None
+    tried = 0
+    for sc in s_cands:
+        for gc in g_cands:
+            tried += 1
+            if tried > 24:
+                break
+            result = a_star(sc["node"], gc["node"], GRAPH, cost_spec, heuristic)
+            if result is not None:
+                path, cost, accessibility_cost = result
+                s_used, g_used = sc, gc
+                break
+        if path:
+            break
+    if path is None:
+        raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
+
+    s_point = None
+    g_point = None
+    if "," in start:
+        try:
+            s_point = [float(v) for v in start.split(",")]
+        except ValueError:
+            pass
+    if "," in goal:
+        try:
+            g_point = [float(v) for v in goal.split(",")]
+        except ValueError:
+            pass
+
+    geometry = [p for p in ([s_point] if s_point else [])]
+    for n in path:
+        ll = latlngs.get(n)
+        if ll:
+            geometry.append(ll)
+    geometry += [p for p in ([g_point] if g_point else [])]
+    geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
+    if s_used is None or g_used is None:
+        return None
+    if cost is None or accessibility_cost is None:
+        return None
+    snap_connect = s_used["dist_m"] + g_used["dist_m"]
+    return {
+        "path": path,
+        "total_cost": (cost + accessibility_cost),
+        "path_cost": cost,
+        "accessibility_cost": accessibility_cost,
+        "total_cut_m": round(cost + snap_connect, 1),
+        "geometry": geometry,
+    }
+
+executor = concurrent.futures.ProcessPoolExecutor()
 
 @app.get("/search")
-def search(start: str = Query(...), goal: str = Query(...)):
+async def search(start: str = Query(...), goal: str = Query(...)):
     s_start = start.strip()
     s_goal = goal.strip()
     s_cands = _resolve_candidates(s_start)
     g_cands = _resolve_candidates(s_goal)
-
+    loop = asyncio.get_running_loop()
+    tasks = []
     final_paths = []
     for cost_spec in cost_specs:
-        path = cost = s_used = g_used = None
-        tried = 0
-        for sc in s_cands:
-            for gc in g_cands:
-                tried += 1
-                if tried > 24:
-                    break
-                result = a_star(sc["node"], gc["node"], GRAPH, cost_spec, heuristic)
-                if result is not None:
-                    path, cost = result
-                    s_used, g_used = sc, gc
-                    break
-            if path:
-                break
-        if path is None:
-            raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
-
-        # Polyline draws the entered endpoints (lat,lng inputs) through the snapped
-        # nodes, so the user sees the full walk, including the two snap walks.
-        s_point = None
-        g_point = None
-        if "," in s_start:
-            try:
-                s_point = [float(v) for v in s_start.split(",")]
-            except ValueError:
-                pass
-        if "," in s_goal:
-            try:
-                g_point = [float(v) for v in s_goal.split(",")]
-            except ValueError:
-                pass
-
-        geometry = [p for p in ([s_point] if s_point else [])]
-        for n in path:
-            ll = latlngs.get(n)
-            if ll:
-                geometry.append(ll)
-        geometry += [p for p in ([g_point] if g_point else [])]
-        geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
-        if s_used is None or g_used is None: return
-
-        snap_connect = s_used["dist_m"] + g_used["dist_m"]
-        final_paths.append( {"path": path, "cost": cost, "total_cut_m": round(cost + snap_connect, 1),  "geometry": geometry})
-    # return {"paths" : final_paths or None}
+        # result = cost_spec_caller(s_start, s_goal, s_cands, g_cands, cost_spec)
+        task = loop.run_in_executor(
+            executor, 
+            cost_spec_caller, 
+            s_start, s_goal, s_cands,g_cands,cost_spec
+        )
+        tasks.append(task)
+        # if result is not None:
+        #     final_paths.append(result)
+    final_paths = await asyncio.gather(*tasks)
+    if any(r is None for r in final_paths):
+        raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
     return final_paths[3]
+    # return {"paths": final_paths}
 
 _COVERAGE = {
     "demo": "data/demo_area_inferred.geojson",
