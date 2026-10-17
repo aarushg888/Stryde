@@ -1,4 +1,9 @@
 fastapi
 uvicorn[standard]
-pillow
+Pillow
+pydantic
+typing
+pandas
+scipy
+numpy
 python-multipart
