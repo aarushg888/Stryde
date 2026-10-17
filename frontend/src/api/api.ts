@@ -1,10 +1,24 @@
 // Stryde backend client — one place to point at the FastAPI service.
 //
 // Device testing: the phone and the Mac running the backend must share Wi-Fi.
-// Set EXPO_PUBLIC_API_URL=http://<your-mac-lan-ip>:8100 (Expo env var) or edit
-// DEV_FALLBACK below. On the web / simulator the default bounceback works.
+// API base resolution order:
+//  1. EXPO_PUBLIC_API_URL (set before `npx expo start`)
+//  2. The LAN IP the phone reached Metro via (Expo manifest hostUri), so a
+//     default `npx expo start` works on physical devices with zero setup
+//  3. localhost (simulator / web)
+import Constants from 'expo-constants';
+
 const DEV_FALLBACK = 'http://localhost:8100';
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? DEV_FALLBACK;
+
+function resolveBaseUrl(): string {
+  const fromEnv = process.env.EXPO_PUBLIC_API_URL;
+  if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/+$/, '');
+  const host = Constants.expoConfig?.hostUri?.split(':')[0];
+  if (host && /^\d+\.\d+\.\d+\.\d+$/.test(host)) return `http://${host}:8100`;
+  return DEV_FALLBACK;
+}
+
+export const BASE_URL = resolveBaseUrl();
 
 export type LatLng = { latitude: number; longitude: number };
 

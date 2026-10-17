@@ -10,7 +10,7 @@ import { ThemedView } from '@/components/themed-view';
 import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, MaxContentWidth, Spacing, Colors } from '@/constants/theme';
 import MapView, { Marker, Polyline } from 'react-native-maps';
-import { api, type RouteResult } from '@/api/api';
+import { api, BASE_URL, type RouteResult } from '@/api/api';
 
 // MVP coverage area kept in sync with the backend's built graph (Logan Circle).
 const DC_REGION = {
@@ -269,7 +269,7 @@ export default function HomeScreen() {
           )}
 
           <ThemedText type="small" themeColor="textSecondary" style={styles.helper}>
-            Backend on port 8100 required — see repository README (API: /search, /detect, /coverage).
+            API target: {BASE_URL} — backend must run on port 8100 (README: /search, /detect, /coverage).
           </ThemedText>
 
           {Platform.OS === 'web' && <WebBadge />}
