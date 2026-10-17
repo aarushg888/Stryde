@@ -30,7 +30,8 @@ from PIL import UnidentifiedImageError
 from pydantic import BaseModel, Field
 from typing import List
 import pandas as pd
-
+from scipy.spatial import KDTree
+import numpy as np
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO = ROOT  # backend/.. == repo root
 
@@ -43,10 +44,20 @@ def _load_graph():
     graphs, meta = load(str(data))
     print(graphs[2])
     return graphs, meta
+GRAPH, _META = _load_graph()
+latlngs = _META.get("node_latlng") or {}
+KIND_COST = {"sidewalk": 0, "footpath": 0, "connector": 0, "crosswalk": 5}
 
-
-def heuristic(node, goal, graph) -> float:
-    return 0.0
+    
+def heuristic(node, goal, type) -> float:
+    node_ll = latlngs.get(node)
+    goal_ll = latlngs.get(goal)
+    heuristic_cost = _haversine(node_ll,goal_ll)
+    if type is not None:
+        heuristic_cost += KIND_COST[type]
+        if type == "crosswalk" and node_ll:
+            heuristic_cost += get_incident_score(node_ll)
+    return heuristic_cost
 def generate_a_star(state, explored, graph):
    path = [state]
    cost = 0
@@ -63,11 +74,11 @@ def a_star(start, goal, graph, heuristic=heuristic):
       raise HTTPException(status_code=404, detail=f"Node '{start}' not in graph")
    if goal not in graph[0]:
       raise HTTPException(status_code=404, detail=f"Node '{goal}' not in graph")
-   h_start = heuristic(start,goal,graph)
+   h_start = heuristic(start,goal,None)
    frontier, explored = [], {start: ("s",h_start)} # heuristic is total cost
-   heapq.heappush(frontier,(h_start,0,start)) # total cost, cost to reach, state
+   heapq.heappush(frontier,(h_start,0,None,start)) # total cost, cost to reach, state
    while len(frontier) > 0:
-      tc,pc,s = heapq.heappop(frontier)
+      tc,pc,type,s = heapq.heappop(frontier)
       if tc > explored[s][1]:
          continue
       if s == goal:
@@ -75,15 +86,15 @@ def a_star(start, goal, graph, heuristic=heuristic):
          return path, cost
       for a in graph[0][s]:  #graph[3] is neighbors
          new_pc = pc + graph[1][(s,a)]
-         new_tc = new_pc + heuristic(a,goal,graph)
+         new_tc = new_pc + heuristic(a,goal,type)
          if a not in explored or new_tc < explored[a][1]:
+            new_type = graph[2][(s,a)]
             explored[a] = (s,new_tc)
-            heapq.heappush(frontier,(new_tc,new_pc,a))
+            heapq.heappush(frontier,(new_tc,new_pc,new_type,a))
    return None
 
 
-GRAPH, _META = _load_graph()
-latlngs = _META.get("node_latlng") or {}
+
 NO_DATA = """hazard detector is warming up — model weights are still training
 (run backend/ml/street/train_colab.ipynb, then drop best.pt into
 backend/ml/street/weights/)."""
@@ -213,7 +224,7 @@ def search(start: str = Query(...), goal: str = Query(...)):
     straight_m = None
     if s_point and g_point:
         straight_m = round(_haversine(s_point, g_point), 1)
-
+    print("Cost: ", cost)
     return {
         "start": start, "goal": goal,
         "start_node": s_used["node"], "goal_node": g_used["node"],
@@ -250,17 +261,18 @@ def _coverage_file(area: str) -> pathlib.Path:
 
 _INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
 incident_df = pd.read_csv(_INCIDENTS_PATH)
-
-def find_incident_near(lat, lng, k: int = 6):
-    # scored = []
-    # for n, (nlat, nlng) in latlngs.items():
-    #         dy = (nlat - lat) * 111_320.0
-    #         dx = (nlng - lng) * 111_320.0 * math.cos(math.radians(lat))
-    #         if (dx )
-    pass
-
-def _load_incidents():
-    pass
+df_new = pd.DataFrame({
+    'x': incident_df['LATITUDE'] * 111320.0 * np.cos(np.radians(incident_df['LATITUDE'])),
+    'y': incident_df['LONGITUDE'] * 111320.0
+})
+coords = df_new[['x', 'y']].to_numpy()
+tree = KDTree(coords)
+def get_incident_score(ll, k: int = 20):
+    results = tree.query_ball_point([ll[1],ll[0]],r=k)
+    if results:
+        nearby = incident_df.iloc(results)
+        return nearby['TOTAL_VEHICLES'].sum() + (nearby['TOTAL_BICYCLES'].sum() * 40) + (nearby['TOTAL_PEDESTRIANS'].sum() * 400) +(nearby['FATAL_PEDESTRIAN'].sum() * 10**6)
+    return 0
 
 
 @app.get("/coverage")
