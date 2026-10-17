@@ -32,20 +32,36 @@ from typing import List
 import pandas as pd
 from scipy.spatial import KDTree
 import numpy as np
+import pickle
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO = ROOT  # backend/.. == repo root
 
 
+def _load_graph_osm():
+    data = REPO / "data" / "osm" / "pickle"
+    with open(data / "node_latlng.pkl", 'rb') as file:
+        node_latlng = pickle.load(file)
+    with open(data / "adjacencies.pkl", 'rb') as file:
+        adjacencies = pickle.load(file)
+    with open(data / "tube_kind.pkl", 'rb') as file:
+        tube_kind = pickle.load(file)
+    with open(data / "tubes.pkl", 'rb') as file:
+        tubes = pickle.load(file)
+    node_latlng = dict(node_latlng)
+    adjacencies = dict(adjacencies)
+    tubes = dict(tubes)
+    tube_kind = dict(tube_kind)
 
-def _load_graph():
+    return [adjacencies, tubes, tube_kind],node_latlng
+        
+def _load_graph_ml():
     """[(adjacency, tube_weights), meta] from the router handoff, else toy graph."""
     data = REPO / "data" / "router_graph"
     from backend.ml.aerial.router_graph import load
     graphs, meta = load(str(data))
-    return graphs, meta
-GRAPH, _META = _load_graph()
-latlngs = _META.get("node_latlng") or {}
-KIND_COST = {"sidewalk": 0, "footpath": 0, "connector": 0, "crosswalk": 5}
+    return graphs, meta.get("node_latlng") or {}
+# GRAPH, latlngs = _load_graph_ml()
+GRAPH, latlngs = _load_graph_osm()
 
     
 def heuristic(node_ll, goal_ll) -> float:
@@ -56,7 +72,14 @@ def generate_a_star(state, explored, graph):
    cost = 0
    parent = state
    current = explored[parent][0]
+   accessibility_cost = 0
    while current != "s":
+      node_ll = latlngs.get(parent)
+      type = graph[2][(current,parent)]
+      if (type == "crossing" or type == "crosswalk") and node_ll:
+        c = get_incident_score(node_ll)
+        if c > 0:
+            print("accessibiilty > 0 somehow: ", c, node_ll)
       cost += graph[1][(current,parent)]
       path.append(current)
       parent = current
@@ -77,15 +100,16 @@ def a_star(start, goal, graph, heuristic=heuristic):
       if tc > explored[s][1]:
          continue
       if s == goal:
+         print("Goal PC: ", pc)
          path, cost = generate_a_star(s, explored, graph)
          return path, cost
       for a in graph[0][s]:  #graph[3] is neighbors
         node_ll = latlngs.get(a)
         accessibility_cost = 0
-        if type is not None:
-            accessibility_cost += KIND_COST[type]
-        if type == "crosswalk" and node_ll:
-            accessibility_cost += get_incident_score(node_ll)
+        if (type == "crossing" or type == "crosswalk") and node_ll:
+            accessibility_cost += 3*graph[1][(s,a)] + get_incident_score(node_ll)
+        if type == "unknown":
+            accessibility_cost += 10
         new_pc = pc + graph[1][(s,a)] + accessibility_cost
         new_tc = new_pc + heuristic(node_ll,goal_ll)
         if a not in explored or new_tc < explored[a][1]:
@@ -276,9 +300,9 @@ def get_incident_score(ll, k=20):
     if not idx:
         return 0
     nearby = incident_df.iloc[idx]     
-    val = (nearby['TOTAL_VEHICLES'].sum()
-            + nearby['TOTAL_BICYCLES'].sum() * 40
-            + nearby['TOTAL_PEDESTRIANS'].sum() * 400
+    val = (nearby['TOTAL_VEHICLES'].sum() * 20
+            + nearby['TOTAL_BICYCLES'].sum() * 400
+            + nearby['TOTAL_PEDESTRIANS'].sum() * 1000
             + nearby['FATAL_PEDESTRIAN'].sum() * 10**6)
     return val
 

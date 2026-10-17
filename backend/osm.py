@@ -16,7 +16,7 @@ G = ox.graph_from_place(
     simplify=False,
     retain_all=True
 )
-
+node_latlng = {}
 adjacencies = {}
 tubes = {}
 tube_kind = {}
@@ -37,6 +37,7 @@ def distance(n1,n2):
 
     return ox.distance.great_circle(y1, x1, y2, x2)
 for node in G.nodes():
+    node_latlng[node] = [G.nodes[node]["y"],G.nodes[node]["x"]] 
     neighbors = set(G.neighbors(node))
     adjacencies[node] = neighbors
 
@@ -49,9 +50,12 @@ for node in G.nodes():
         tube_kind[(neighbor,node)] = classify_edge(edge_dict)
         tube_kind[(node,neighbor)] = classify_edge(edge_dict)
 
+print("Node_latlng:", dict(islice(node_latlng.items(), 5)))
 print("Adj:", dict(islice(adjacencies.items(), 5)))
 print("Tubes:", dict(islice(tubes.items(), 5)))
 print("Tube_kind:", dict(islice(tube_kind.items(), 5)))
+with open("../data/osm/pickle/node_latlng.pkl", "wb") as file:
+    pickle.dump(node_latlng, file)
 with open("../data/osm/pickle/adjacencies.pkl", "wb") as file:
     pickle.dump(adjacencies, file)
 with open("../data/osm/pickle/tubes.pkl", "wb") as file:
