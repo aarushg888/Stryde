@@ -13,3 +13,6 @@ backend/tile2net/output/**
 # python junk
 __pycache__/
 ml/aerial/cache/
+
+# osmnx/overpass response cache
+/cache/

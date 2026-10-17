@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build preview maps (folium HTML + matplotlib PNG) from contract GeoJSONs.
+"""Build preview maps (folium HTML + matplotlib PNG) from contract GeoJSONs
 
 Usage:
   python make_previews.py --inferred data/x_inferred.geojson \
@@ -19,6 +19,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import shapely
+
+#math plot usage
 
 KIND_COLORS = {
     "sidewalk": "#1f77b4",
