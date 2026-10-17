@@ -17,18 +17,25 @@ clone before use.
 
 | Item | Status |
 |---|---|
-| Dev machine | macOS (darwin), no `nvidia-smi`, `torch.cuda.is_available() = False`, MPS present but **not** used by tile2net |
-| Local inference | Blocked: `RuntimeError: Tile2Net inference requires a CUDA-capable PyTorch runtime` |
-| Local generate | Works on CPU (verified: Boston example 96 tiles stitched, checkpoints downloaded to `~/Library/Caches/tile2net/weights`) |
+| Dev machine | macOS (darwin), no `nvidia-smi`, no CUDA; MPS available |
+| Local inference (upstream path) | Blocked: `RuntimeError: Tile2Net inference requires a CUDA-capable PyTorch runtime` |
+| Local inference (workaround) | **Works** via `ml/aerial/tile2net_no_cuda.py` (monkeypatches CUDA-only touchpoints to run the same pretrained model on MPS/CPU). Unofficial — results QA'd visually; Colab remains the officially-supported path |
+| Local generate | Works on CPU (Boston example 96 tiles stitched, checkpoints cached at `~/Library/Caches/tile2net/weights`) |
 | Local python | tile2net needs Python 3.11–3.14; clone venv uses Python 3.12 (uv, `uv sync`) |
-| Pinned CUDA 11.7 / Py3.10.9 / torch 2.0.0 (old README) | Outdated: current clone needs Python 3.11–3.14 + any CUDA-compatible torch (verified torch 2.14.1 imports fine; no old-version pin) |
+| Pinned CUDA 11.7 / Py3.10.9 / torch 2.0.0 (old README) | Outdated: current clone needs Python 3.11–3.14 + any CUDA-compatible torch (verified torch 2.14.1; MPS run used the same env) |
 | Install (local) | `cd backend/tile2net && uv sync` (or `conda create -n testenv python=3.11 && conda activate testenv && python -m pip install -e .` per README) |
 | Install (Colab) | `pip install -e <tile2net dir>` on the preinstalled CUDA torch — covered by the notebook |
 
-**Blocker + alternatives (reported):** no local CUDA GPU.
+Measured local runtimes (MPS, torch 2.14.1, Apple Silicon):
 
-1. Run `ml/aerial/tile2net_colab.ipynb` in Colab/Kaggle (recommended, self-contained).
-2. Run the same commands on any CUDA Linux box (cluster node, Kaggle T4/P100, AWS/gcp GPU VM) using the `python -m tile2net generate | inference` flow documented in the notebook.
+| Area | tiles | tile px | generate | inference (MPS) |
+|---|---|---|---|---|
+| Boston example | 96 | 256 | CPU < 1 min | 34.5 s |
+| DC test area (0.08 km²) | 64 | 512 | CPU < 1 min | 34.5 s |
+| DC demo (~1 km²) | 400 | 512 | CPU < 1 min | 114 s |
+
+DC/VA sources auto-select 512 px base tiles; Boston uses 256 px — parser must
+not assume a single size.
 
 ## Region support (BASICS.md)
 
@@ -71,19 +78,23 @@ python -m tile2net inference \
   (interactive: asks for an output dir; see the notebook for the headless
   equivalent).
 
-## Output schema (validated against source, not just docs)
+## Output schema (validated against a real run on the demo area)
 
 Everything under `<output-dir>/<project-name>/`:
 
 ```
 tiles/{static,stitched}/...   raw + stitched imagery (never committed)
-segmentation/<name>/256_19_4/ segmentation masks & previews (per --dump_percent)
+segmentation/<name>/512_19_4/ segmentation masks & previews (per --dump_percent)
 polygons/<name>-polygons.parquet
   EPSG:4326, columns: geometry (Polygon), f_type in {sidewalk, crosswalk, road}
 network/<name>-network.parquet
   EPSG:4326, columns: geometry (LineString), f_type in
   {sidewalk, crosswalk, sidewalk_connection, medians}
 ```
+
+Observed in the demo run: network sidewalk=…/crosswalk=…/sidewalk_connection=…
+(no `footpath` — this tile2net version does not emit footpath lines at the
+network stage; polygons also contain `road`).
 
 * `f_type` mapping in conversion (scripts + notebook):
   * `sidewalk -> sidewalk`, `crosswalk -> crosswalk`, `footpath -> footpath`
@@ -102,18 +113,42 @@ network/<name>-network.parquet
   OSM is incomplete and not ground truth.
 * GeoJSON > ~50 MB goes to a GitHub Release instead of the repo.
 
-## Local CPU postprocessing env
+## Local CPU/MPS pipeline (primary on this machine)
 
 ```bash
+# one-time envs
+cd backend/tile2net && uv sync && cd ../..
 uv venv ml/aerial/.venv
 uv pip install --python ml/aerial/.venv/bin/python -r ml/aerial/requirements.txt
+
+# 1) generate (CPU) — prints "INFO       Dumping to <city_info.json>"
+backend/tile2net/.venv/bin/python -m tile2net generate \
+  --location "38.9182,-77.0380,38.9092,-77.0270" \
+  --output backend/tile2net/output --name demo --dump_percent 0 --quiet
+
+# 2) inference on MPS/CPU (monkeypatch runner; NOT upstream-supported)
+backend/tile2net/.venv/bin/python ml/aerial/tile2net_no_cuda.py \
+  --city-info backend/tile2net/output/demo/tiles/demo_512_info.json --device mps
+
+# 3) contract GeoJSON (small area: also run the same for test_area)
+ml/aerial/.venv/bin/python ml/aerial/convert_tile2net_output.py \
+  --project-dir backend/tile2net/output/demo --project-name demo \
+  --inferred data/demo_area_inferred.geojson \
+  --polygons data/demo_area_polygons.geojson
+
+# 4) OSM metrics for the demo bbox
+ml/aerial/.venv/bin/python ml/aerial/osm_metrics.py \
+  --inferred data/demo_area_inferred.geojson \
+  --bbox "38.9182,-77.0380,38.9092,-77.0270" \
+  --region washington-dc --out metrics/aerial_vs_osm.json
+
+# 5) previews
+ml/aerial/.venv/bin/python ml/aerial/make_previews.py \
+  --inferred data/demo_area_inferred.geojson \
+  --polygons data/demo_area_polygons.geojson \
+  --bbox "38.9182,-77.0380,38.9092,-77.0270" \
+  --name demo_area --out ml/aerial/previews
 ```
-
-Scripts (all ESPG:4326 in, EPSG:4326 out):
-
-* `convert_tile2net_output.py` — parquet → contract GeoJSON
-* `osm_metrics.py` — OSM sidewalk/crossing vs tile2net metrics
-* `make_previews.py` — folium HTML + matplotlib PNG previews
 
 ## Colab / Kaggle notebook
 
