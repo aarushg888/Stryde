@@ -32,31 +32,40 @@ from typing import List
 import pandas as pd
 from scipy.spatial import KDTree
 import numpy as np
+import pickle
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO = ROOT  # backend/.. == repo root
 
 
+def _load_graph_osm():
+    data = REPO / "data" / "osm" / "pickle"
+    with open(data / "node_latlng.pkl", 'rb') as file:
+        node_latlng = pickle.load(file)
+    with open(data / "adjacencies.pkl", 'rb') as file:
+        adjacencies = pickle.load(file)
+    with open(data / "tube_kind.pkl", 'rb') as file:
+        tube_kind = pickle.load(file)
+    with open(data / "tubes.pkl", 'rb') as file:
+        tubes = pickle.load(file)
+    node_latlng = dict(node_latlng)
+    adjacencies = dict(adjacencies)
+    tubes = dict(tubes)
+    tube_kind = dict(tube_kind)
 
-def _load_graph():
+    return [adjacencies, tubes, tube_kind],node_latlng
+        
+def _load_graph_ml():
     """[(adjacency, tube_weights), meta] from the router handoff, else toy graph."""
     data = REPO / "data" / "router_graph"
     from backend.ml.aerial.router_graph import load
     graphs, meta = load(str(data))
-    print(graphs[2])
-    return graphs, meta
-GRAPH, _META = _load_graph()
-latlngs = _META.get("node_latlng") or {}
-KIND_COST = {"sidewalk": 0, "footpath": 0, "connector": 0, "crosswalk": 5}
+    return graphs, meta.get("node_latlng") or {}
+# GRAPH, latlngs = _load_graph_ml()
+GRAPH, latlngs = _load_graph_osm()
 
     
-def heuristic(node, goal, type) -> float:
-    node_ll = latlngs.get(node)
-    goal_ll = latlngs.get(goal)
+def heuristic(node_ll, goal_ll) -> float:
     heuristic_cost = _haversine(node_ll,goal_ll)
-    if type is not None:
-        heuristic_cost += KIND_COST[type]
-        if type == "crosswalk" and node_ll:
-            heuristic_cost += get_incident_score(node_ll)
     return heuristic_cost
 def generate_a_star(state, explored, graph):
    path = [state]
@@ -64,33 +73,48 @@ def generate_a_star(state, explored, graph):
    parent = state
    current = explored[parent][0]
    while current != "s":
+      node_ll = latlngs.get(parent)
+      cost += get_accessibility_costs(current, parent, node_ll, graph)      
       cost += graph[1][(current,parent)]
       path.append(current)
       parent = current
       current = explored[parent][0]
    return path[::-1], cost
+
+def get_accessibility_costs(s,a,node_ll, graph):
+    type = graph[2][(s,a)]
+    accessibility_cost = 0
+    if (type == "crossing" or type == "crosswalk") and node_ll:
+        accessibility_cost += 2+4*graph[1][(s,a)] + get_incident_score(node_ll)
+    if type == "unknown":
+        accessibility_cost += 300 + get_incident_score(node_ll)
+    return accessibility_cost
 def a_star(start, goal, graph, heuristic=heuristic):
    if start not in graph[0]:
       raise HTTPException(status_code=404, detail=f"Node '{start}' not in graph")
    if goal not in graph[0]:
       raise HTTPException(status_code=404, detail=f"Node '{goal}' not in graph")
-   h_start = heuristic(start,goal,None)
+   start_ll = latlngs.get(start)
+   goal_ll = latlngs.get(goal)
+   h_start = heuristic(start_ll,goal_ll)
    frontier, explored = [], {start: ("s",h_start)} # heuristic is total cost
-   heapq.heappush(frontier,(h_start,0,None,start)) # total cost, cost to reach, state
+   heapq.heappush(frontier,(h_start,0,start)) # total cost, cost to reach, state
    while len(frontier) > 0:
-      tc,pc,type,s = heapq.heappop(frontier)
+      tc,pc,s = heapq.heappop(frontier)
       if tc > explored[s][1]:
          continue
       if s == goal:
-         path, cost = generate_a_star(s, explored, graph)
-         return path, cost
+         print("Goal PC: ", pc)
+         path, total_cost = generate_a_star(s, explored, graph)
+         return path, total_cost
       for a in graph[0][s]:  #graph[3] is neighbors
-         new_pc = pc + graph[1][(s,a)]
-         new_tc = new_pc + heuristic(a,goal,type)
-         if a not in explored or new_tc < explored[a][1]:
-            new_type = graph[2][(s,a)]
+        node_ll = latlngs.get(a)
+        accessibility_cost = get_accessibility_costs(s,a,node_ll,graph)
+        new_pc = pc + graph[1][(s,a)] + accessibility_cost
+        new_tc = new_pc + heuristic(node_ll,goal_ll)
+        if a not in explored or new_tc < explored[a][1]:
             explored[a] = (s,new_tc)
-            heapq.heappush(frontier,(new_tc,new_pc,new_type,a))
+            heapq.heappush(frontier,(new_tc,new_pc,a))
    return None
 
 
@@ -224,7 +248,6 @@ def search(start: str = Query(...), goal: str = Query(...)):
     straight_m = None
     if s_point and g_point:
         straight_m = round(_haversine(s_point, g_point), 1)
-    print("Cost: ", cost)
     return {
         "start": start, "goal": goal,
         "start_node": s_used["node"], "goal_node": g_used["node"],
@@ -260,19 +283,26 @@ def _coverage_file(area: str) -> pathlib.Path:
 
 
 _INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
-incident_df = pd.read_csv(_INCIDENTS_PATH)
-df_new = pd.DataFrame({
-    'x': incident_df['LATITUDE'] * 111320.0 * np.cos(np.radians(incident_df['LATITUDE'])),
-    'y': incident_df['LONGITUDE'] * 111320.0
-})
-coords = df_new[['x', 'y']].to_numpy()
-tree = KDTree(coords)
-def get_incident_score(ll, k: int = 20):
-    results = tree.query_ball_point([ll[1],ll[0]],r=k)
-    if results:
-        nearby = incident_df.iloc(results)
-        return nearby['TOTAL_VEHICLES'].sum() + (nearby['TOTAL_BICYCLES'].sum() * 40) + (nearby['TOTAL_PEDESTRIANS'].sum() * 400) +(nearby['FATAL_PEDESTRIAN'].sum() * 10**6)
-    return 0
+LAT0 = 38.9
+def to_xy(lat, lng):
+    return lat * 111320.0, lng * 111320.0 * np.cos(np.radians(LAT0))
+
+incident_df = (pd.read_csv(_INCIDENTS_PATH)
+                 .dropna(subset=['LATITUDE', 'LONGITUDE'])
+                 .reset_index(drop=True))
+x, y = to_xy(incident_df['LATITUDE'].to_numpy(), incident_df['LONGITUDE'].to_numpy())
+tree = KDTree(np.column_stack([x, y]))
+
+def get_incident_score(ll, k=20):
+    idx = tree.query_ball_point(to_xy(ll[0], ll[1]), r=k)
+    if not idx:
+        return 0
+    nearby = incident_df.iloc[idx]     
+    val = (nearby['TOTAL_VEHICLES'].sum() * 40
+            + nearby['TOTAL_BICYCLES'].sum() * 800
+            + nearby['TOTAL_PEDESTRIANS'].sum() * 2000
+            + nearby['FATAL_PEDESTRIAN'].sum() * 10**6)
+    return val
 
 
 @app.get("/coverage")

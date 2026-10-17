@@ -20,7 +20,10 @@ import {
   useColorScheme,
   View,
 } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import MapView, {
+  Marker,
+  Polyline
+} from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // MVP coverage area kept in sync with the backend's built graph (Logan Circle).
@@ -711,6 +714,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#3498db",
+  },
+  pickRow: {
+    flexDirection: "row",
+    gap: Spacing.two,
+  },
+  pickChip: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "rgba(126, 123, 123, 0.35)",
+    backgroundColor: "rgba(126, 123, 123, 0.08)",
+    borderRadius: Spacing.three,
+    paddingVertical: Spacing.two,
+    minHeight: 40,
+  },
+  pickChipActive: {
+    backgroundColor: "#3498db",
+    borderColor: "#3498db",
+  },
+  pickChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  pickChipTextActive: {
+    color: "#ffffff",
+  },
+  pickHint: {
+    textAlign: "center",
+    fontStyle: "italic",
   },
   fieldRow: {
     flexDirection: "row",
