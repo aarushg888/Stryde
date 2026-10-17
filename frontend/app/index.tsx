@@ -3,6 +3,7 @@ import type { NativeSyntheticEvent } from 'react-native';
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -20,40 +21,34 @@ import {
   type PressEvent as MapPressEvent,
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../stride/colors';
 import { PROFILES } from '../stride/profiles';
+import { hazardLabel } from '../stride/hazards';
+import { hasApi, hasRoutingKey } from '../stride/routing';
+import { hasRoutingKey as orsKeySet, hasApi as apiSet } from '../stride/env'; // placeholder swapped below
+import { useStore } from '../stride/store';
 import {
   formatDistance,
   formatDuration,
   getRoutes,
-  hasRoutingKey,
   searchPlaces,
-  type LatLng,
-  type Place,
-  type Route,
+  toLngLat,
 } from '../stride/routing';
 
 // Used when the device can't give us a GPS fix (common on emulators): downtown DC.
-const FALLBACK_LOCATION: LatLng = { latitude: 38.9072, longitude: -77.0369 };
+const FALLBACK_LOCATION = { latitude: 38.9072, longitude: -77.0369 };
 
-// Free vector tiles, no API key. Falls back to demotiles only if this is unreachable.
+// Free vector tiles, no API key.
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
-// MapLibre wants [longitude, latitude]; the rest of our code uses latitude/longitude.
-function toLngLat(c: LatLng): [number, number] {
-  return [c.longitude, c.latitude];
-}
-
-function routeFeature(coords: LatLng[]): GeoJSON.Feature {
+function routeFeature(coords) {
   return {
     type: 'Feature',
     properties: {},
-    geometry: {
-      type: 'LineString',
-      coordinates: coords.map(toLngLat),
-    },
+    geometry: { type: 'LineString', coordinates: coords.map(toLngLat) },
   };
 }
 
@@ -61,55 +56,72 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraRef>(null);
   const mapRef = useRef<MapRef>(null);
+  const store = useStore();
 
-  const [me, setMe] = useState<LatLng | null>(null);
+  const { origin, destination, routes, hazards, preferences } = store;
+  const profile = PROFILES.find((p) => p.id === preferences.profileId) ?? PROFILES[0];
+
+  const [me, setMe] = useState(null);
   const [hasPermission, setHasPermission] = useState(false);
   const [locNote, setLocNote] = useState<string | null>(null);
   const [tilesFailed, setTilesFailed] = useState(false);
-
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Place[]>([]);
-  const [dest, setDest] = useState<Place | null>(null);
-  const [routes, setRoutes] = useState<Route[]>([]);
+  const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 1. Find the user
+  // 1. Find the user (permission + GPS or a DC fallback)
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       setHasPermission(status === 'granted');
-      if (status !== 'granted') {
+      if (status === 'granted') {
+        try {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          setMe({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+        } catch {
+          setMe(FALLBACK_LOCATION);
+        }
+      } else {
         setLocNote('Location is off. Starting from Washington DC. Turn it on in Settings.');
-        setMe(FALLBACK_LOCATION);
-        return;
-      }
-      try {
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        setMe({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
-      } catch {
-        setLocNote('No GPS fix yet. Starting from Washington DC.');
         setMe(FALLBACK_LOCATION);
       }
     })();
   }, []);
 
-  // 2. Get routes whenever the destination changes
+  // 2. Default the start to where you are
   useEffect(() => {
-    if (!me || !dest) return;
+    if (me && !origin) store.setOrigin({ label: 'Current location', coords: me });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
+
+  // 3. Load reported hazards from the backend when there is one
+  useEffect(() => {
+    if (hasApi) store.loadHazards();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 4. Routes whenever start, destination or preferred travel style changes
+  useEffect(() => {
+    if (!origin || !destination) return;
     let cancelled = false;
-    const from = me;
-    const to = dest.coords;
+    const from = origin.coords;
+    const to = destination.coords;
 
     async function loadRoutes() {
       setLoading(true);
       setError(null);
       try {
-        const r = await getRoutes(from, to, PROFILES[1]);
+        const r = await getRoutes(from, to, profile, {
+          maxInclinePct: preferences.maxInclinePct,
+          maxKerbM: preferences.maxKerbM,
+          pavedOnly: preferences.pavedOnly,
+        });
         if (cancelled) return;
-        setRoutes(r);
+        store.setRoutes(r);
+        if (!store.selectedRouteId) store.setSelectedRouteId(r[0].id);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Could not get a route.');
       } finally {
@@ -121,9 +133,10 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [me, dest]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin, destination, preferences.profileId, preferences.maxInclinePct, preferences.maxKerbM, preferences.pavedOnly]);
 
-  // 3. Fit the map to the routes
+  // 5. Fit the map to the routes
   useEffect(() => {
     if (routes.length === 0) return;
     const all = routes.flatMap((r) => r.coords);
@@ -132,7 +145,7 @@ export default function HomeScreen() {
     cameraRef.current?.fitBounds(
       [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)],
       {
-        padding: { top: 130, bottom: 240, left: 40, right: 40 },
+        padding: { paddingTop: 130, paddingBottom: 240, paddingLeft: 40, paddingRight: 40 },
         duration: 600,
       },
     );
@@ -147,13 +160,13 @@ export default function HomeScreen() {
     }
   }, [query, me]);
 
-  const pickPlace = (p: Place) => {
-    setDest(p);
+  const pickPlace = (p) => {
+    store.setDestination(p);
     setResults([]);
     setQuery(p.label);
   };
 
-  const onLongPress = (e: NativeSyntheticEvent<MapPressEvent>) => {
+  const onLongPress = (e) => {
     pickPlace({
       label: 'Dropped pin',
       coords: { latitude: e.nativeEvent.lngLat[1], longitude: e.nativeEvent.lngLat[0] },
@@ -161,11 +174,16 @@ export default function HomeScreen() {
   };
 
   const clear = () => {
-    setDest(null);
-    setRoutes([]);
+    store.setDestination(null);
+    store.setRoutes([]);
     setQuery('');
     setResults([]);
     setError(null);
+  };
+
+  const useCurrent = () => {
+    if (!me) return;
+    store.setOrigin({ label: 'Current location', coords: me });
   };
 
   if (!me) {
@@ -198,11 +216,19 @@ export default function HomeScreen() {
         />
         {hasPermission && <UserLocation />}
 
-        {dest && (
-          <Marker id="destination" lngLat={toLngLat(dest.coords)}>
+        {/* Destination pin */}
+        {destination && (
+          <Marker id="destination" lngLat={toLngLat(destination.coords)}>
             <View style={styles.pin} accessibilityLabel="Destination marker" />
           </Marker>
         )}
+
+        {/* Reported hazards */}
+        {hazards.map((h) => (
+          <Marker key={h.id} id={h.id} lngLat={toLngLat(h.coords)}>
+            <View style={styles.hazardDot} accessibilityLabel={`Reported hazard: ${hazardLabel(h.type)}`} />
+          </Marker>
+        ))}
 
         {routes.map((r) => (
           <GeoJSONSource key={r.id} id={`route-${r.id}`} data={routeFeature(r.coords)}>
@@ -211,8 +237,11 @@ export default function HomeScreen() {
               id={`route-${r.id}-line`}
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
               paint={{
-                'line-color': r.id === 'accessible' ? colors.green : colors.standardRoute,
-                'line-width': r.id === 'accessible' ? 6 : 4,
+                'line-color':
+                  r.id === (store.selectedRouteId ?? 'accessible')
+                    ? colors.green
+                    : colors.standardRoute,
+                'line-width': 5,
                 'line-dasharray': r.id === 'accessible' ? [1, 0] : [2, 2],
               }}
             />
@@ -220,9 +249,22 @@ export default function HomeScreen() {
         ))}
       </Map>
 
-      {/* Search */}
+      {/* Search + start */}
       <View style={[styles.searchWrap, { top: insets.top + 12 }]}>
         <View style={styles.searchBox}>
+          <Pressable
+            onPress={useCurrent}
+            accessibilityRole="button"
+            accessibilityLabel="Use my current location as the start"
+          >
+            <View style={styles.start}>
+              <Text style={styles.startLabel}>From</Text>
+              <Text style={styles.startValue} numberOfLines={1}>
+                {origin?.label ?? 'Current location'}
+              </Text>
+            </View>
+          </Pressable>
+          <View style={styles.divider} />
           <TextInput
             style={styles.input}
             value={query}
@@ -233,72 +275,100 @@ export default function HomeScreen() {
             returnKeyType="search"
             accessibilityLabel="Destination"
           />
-          {dest && (
+          {destination && (
             <Pressable onPress={clear} style={styles.clear} accessibilityLabel="Clear destination">
               <Text style={styles.clearText}>Clear</Text>
             </Pressable>
           )}
         </View>
 
-        {results.length > 0 &&
-          results.map((p, i) => (
-            <Pressable
-              key={`${p.label}-${i}`}
-              style={styles.resultRow}
-              onPress={() => pickPlace(p)}
-              accessibilityRole="button"
-            >
-              <Text style={styles.body} numberOfLines={2}>
-                {p.label}
-              </Text>
-            </Pressable>
-          ))}
+        {results.map((p, i) => (
+          <Pressable
+            key={`${p.label}-${i}`}
+            style={styles.resultRow}
+            onPress={() => pickPlace(p)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.body} numberOfLines={2}>
+              {p.label}
+            </Text>
+          </Pressable>
+        ))}
 
         {locNote && (
           <View style={styles.noteBanner}>
             <Text style={styles.noteText}>{locNote}</Text>
           </View>
         )}
-
         {tilesFailed && (
-          <View style={styles.errorBanner}>
+          <View style={styles.noteBanner}>
             <Text style={[styles.noteText, { color: colors.amber }]}>
               Map tiles failed to load. Check the connection.
             </Text>
           </View>
         )}
-
         {error && (
-          <View style={styles.errorBanner}>
+          <View style={styles.noteBanner}>
             <Text style={[styles.noteText, { color: colors.amber }]}>{error}</Text>
           </View>
         )}
       </View>
 
-      {/* Route summary */}
-      {routes.length > 0 && (
-        <View style={[styles.panel, { paddingBottom: insets.bottom + 12 }]}>
-          {routes.map((r) => (
-            <View key={r.id} style={styles.routeRow}>
-              <View
-                style={[
-                  styles.swatch,
-                  { backgroundColor: r.id === 'accessible' ? colors.green : colors.standardRoute },
-                ]}
-                accessibilityLabel={`${r.label} route`}
-              />
-              <Text style={styles.body}>
-                {r.label} · {formatDistance(r.distanceM)} · {formatDuration(r.durationS)}
+      {/* Bottom panel */}
+      <View style={[styles.panel, { paddingBottom: insets.bottom + 12 }]}>
+        <Pressable
+          style={styles.routeButton}
+          onPress={() => router.push('/routes')}
+          accessibilityRole="button"
+          accessibilityLabel="Find a safer route"
+        >
+          <Text style={styles.routeButtonText}>
+            {destination ? 'Find a safer route' : 'Search a destination to compare routes'}
+          </Text>
+        </Pressable>
+
+        {routes.length > 0 && !loading && (
+          <View style={styles.summary}>
+            {routes.map((r) => (
+              <View key={r.id} style={styles.summaryRow}>
+                <View
+                  style={[
+                    styles.swatch,
+                    { backgroundColor: r.id === 'accessible' ? colors.green : colors.standardRoute },
+                  ]}
+                />
+                <Text style={styles.body}>
+                  {r.label} · {formatDistance(r.distanceM)} · {formatDuration(r.durationS)}
+                </Text>
+              </View>
+            ))}
+            {demo && (
+              <Text style={[styles.noteText, { color: colors.amber, marginTop: 6 }]}>
+                Demo routes. Add EXPO_PUBLIC_ORS_KEY to .env for real ones.
               </Text>
-            </View>
-          ))}
-          {demo && (
-            <Text style={[styles.noteText, { color: colors.amber, marginTop: 8 }]}>
-              Demo routes. Add EXPO_PUBLIC_ORS_KEY to .env for real ones.
-            </Text>
-          )}
+            )}
+          </View>
+        )}
+
+        <View style={styles.links}>
+          <Pressable
+            style={styles.link}
+            onPress={() => router.push('/preferences')}
+            accessibilityRole="button"
+            accessibilityLabel="Walking preferences"
+          >
+            <Text style={styles.linkText}>Preferences</Text>
+          </Pressable>
+          <Pressable
+            style={styles.link}
+            onPress={() => router.push('/report')}
+            accessibilityRole="button"
+            accessibilityLabel="Report a hazard"
+          >
+            <Text style={styles.linkText}>Report hazard</Text>
+          </Pressable>
         </View>
-      )}
+      </View>
 
       {loading && <ActivityIndicator style={styles.activity} color={colors.green} />}
     </View>
@@ -308,7 +378,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  body: { fontSize: 16, color: colors.ink },
+  body: { fontSize: 15, color: colors.ink },
   noteText: { fontSize: 13, color: colors.inkSoft },
 
   searchWrap: { position: 'absolute', left: 16, right: 16 },
@@ -319,11 +389,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.line,
-    paddingHorizontal: 16,
-    minHeight: 52,
+    paddingHorizontal: 12,
+    minHeight: 56,
+    gap: 8,
   },
-  input: { flex: 1, fontSize: 16, color: colors.ink, paddingVertical: 12 },
-  clear: { minHeight: 48, justifyContent: 'center', paddingLeft: 12 },
+  start: { justifyContent: 'center', minHeight: 48 },
+  startLabel: { fontSize: 10, color: colors.inkSoft, textTransform: 'uppercase' },
+  startValue: { fontSize: 14, color: colors.ink, fontWeight: '500' },
+  divider: { width: 1, height: 26, backgroundColor: colors.line },
+  input: { flex: 1, fontSize: 16, color: colors.ink, paddingVertical: 12, minWidth: 80 },
+  clear: { minHeight: 48, justifyContent: 'center', paddingLeft: 8 },
   clearText: { color: colors.green, fontWeight: '600', fontSize: 15 },
   resultRow: {
     minHeight: 48,
@@ -335,20 +410,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 0,
     borderColor: colors.line,
   },
-
   noteBanner: {
     marginTop: 8,
     padding: 10,
     borderRadius: 8,
     backgroundColor: colors.amberSoft,
+    minHeight: 48,
   },
-  errorBanner: {
-    marginTop: 8,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: colors.amberSoft,
-  },
-
   pin: {
     width: 18,
     height: 18,
@@ -357,7 +425,14 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
-
+  hazardDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.amber,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
   panel: {
     position: 'absolute',
     left: 0,
@@ -369,9 +444,22 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: colors.line,
     padding: 16,
+    gap: 10,
   },
-  routeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 40 },
-  swatch: { width: 6, height: 24, borderRadius: 3 },
-
+  routeButton: {
+    minHeight: 52,
+    borderRadius: 12,
+    backgroundColor: colors.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  routeButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  summary: { gap: 2 },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 28 },
+  swatch: { width: 6, height: 20, borderRadius: 3 },
+  links: { flexDirection: 'row', justifyContent: 'space-between' },
+  link: { minHeight: 48, justifyContent: 'center', paddingRight: 16 },
+  linkText: { color: colors.green, fontWeight: '600', fontSize: 15 },
   activity: { position: 'absolute', bottom: 24, alignSelf: 'center' },
 });
