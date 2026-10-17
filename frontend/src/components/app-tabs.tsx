@@ -10,7 +10,6 @@ export default function AppTabs() {
     <Tabs
       screenOptions={{
         headerShown: false, // Hides the default top action header bar
-        tabBarBackgroundColor: colors.background,
         tabBarActiveTintColor: colors.text,
         tabBarInactiveTintColor: colors.backgroundElement,
         tabBarStyle: {

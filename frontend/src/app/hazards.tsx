@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Image, StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { Image, StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert, useColorScheme } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Spacing, Colors } from '@/constants/theme';
-import { useColorScheme } from 'react-native';
 import { api, type Detection } from '@/api/api';
 
 type HazardType = 'Sidewalk' | 'Tree' | 'Construction' | 'Other';
@@ -75,7 +75,7 @@ export default function HazardsScreen() {
     return (
       <ThemedView style={styles.container}>
         <SafeAreaView style={styles.confirmationContainer}>
-          <ThemedText style={styles.successIcon}>✅</ThemedText>
+          <MaterialIcons name="check-circle" size={56} color="#2ecc71" style={styles.successIcon} />
           <ThemedText type="title" style={styles.title}>Hazard Reported!</ThemedText>
           <ThemedText style={styles.confirmationText}>
             Thank you for keeping Stryde safe. Your report has been pinned to the local network map.
@@ -120,10 +120,10 @@ export default function HazardsScreen() {
             <View style={styles.matrixGrid}>
               {(['Sidewalk', 'Tree', 'Construction', 'Other'] as HazardType[]).map((type) => {
                 const labelMap: Record<HazardType, string> = {
-                  Sidewalk: '🚧 Blocked Sidewalk',
-                  Tree: '🌳 Fallen Tree',
-                  Construction: '🏗️ Construction',
-                  Other: '⚠️ Other Obstacle',
+                  Sidewalk: 'Blocked sidewalk',
+                  Tree: 'Fallen tree',
+                  Construction: 'Construction',
+                  Other: 'Other obstacle',
                 };
                 const isSelected = selectedType === type;
                 return (
@@ -140,6 +140,11 @@ export default function HazardsScreen() {
                     <ThemedText style={[styles.matrixText, isSelected && styles.matrixTextSelected]}>
                       {labelMap[type]}
                     </ThemedText>
+                    <MaterialIcons
+                      name={isSelected ? 'check-box' : 'check-box-outline-blank'}
+                      size={18}
+                      color={isSelected ? '#e74c3c' : '#888'}
+                    />
                   </TouchableOpacity>
                 );
               })}
@@ -180,9 +185,12 @@ export default function HazardsScreen() {
               onPress={handleAttachPhoto}
               activeOpacity={0.7}
             >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
+              {!analyzing && !photoUri && <MaterialIcons name="photo-camera" size={16} color="#888" />}
               <ThemedText style={[styles.photoButtonText, photoUri && { color: '#2ecc71' }]}>
-                {analyzing ? '🤖 Analyzing…' : photoUri ? '📸 Photo Attached ✓ — analyzing on submit' : '📷 Attach Photo'}
+                {analyzing ? 'Analyzing photo…' : photoUri ? 'Photo attached — will be analyzed' : 'Attach photo'}
               </ThemedText>
+            </View>
             </TouchableOpacity>
           </View>
 
@@ -249,11 +257,13 @@ const styles = StyleSheet.create({
   },
   matrixItem: {
     width: '48%',
-    height: 50,
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderWidth: 1,
     borderRadius: Spacing.two,
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.two,
+    paddingHorizontal: Spacing.three,
     backgroundColor: 'rgba(0,0,0,0.01)',
   },
   matrixItemSelected: {

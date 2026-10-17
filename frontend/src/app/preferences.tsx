@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Switch, TouchableOpacity, ScrollView } from 'react-native';
+import { StyleSheet, View, Switch, TouchableOpacity, ScrollView, useColorScheme } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Spacing, Colors } from '@/constants/theme';
-import { useColorScheme } from 'react-native';
 
 type RoutingMode = 'standard' | 'wheelchair';
 
@@ -45,7 +44,7 @@ export default function PreferencesScreen() {
                 activeOpacity={0.8}
               >
                 <ThemedText style={[styles.toggleButtonText, routingMode === 'standard' && styles.textActive]}>
-                  🚶 Standard Walking
+                  Standard walking
                 </ThemedText>
               </TouchableOpacity>
               
@@ -58,7 +57,7 @@ export default function PreferencesScreen() {
                 activeOpacity={0.8}
               >
                 <ThemedText style={[styles.toggleButtonText, routingMode === 'wheelchair' && styles.textActive]}>
-                  ♿ Wheelchair / Accessible
+                  Wheelchair / accessible
                 </ThemedText>
               </TouchableOpacity>
             </View>
@@ -129,7 +128,7 @@ export default function PreferencesScreen() {
           {/* Configuration State Tracker Display */}
           <View style={[styles.statusFeedbackBox, { backgroundColor: colors.backgroundElement }]}>
             <ThemedText style={styles.statusBoxText}>
-              🛡️ Stryde safety router filters actively configured for{' '}
+              Stryde safety filters configured for{' '}
               <ThemedText style={{ fontWeight: '700' }}>
                 {routingMode === 'standard' ? 'Standard Pedestrian' : 'Wheelchair Access'}
               </ThemedText>{' '}

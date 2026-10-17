@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -63,7 +62,7 @@ export default function TabTwoScreen() {
       sidewalkInfo: '85% coverage, missing curb cuts on 4th Ave',
       crossingInfo: '2 unmarked mid-block pedestrian segments',
       hazardsCount: 1,
-      hazardsList: ['🏗️ Active construction blocking lane near Broadway'],
+      hazardsList: ['Active construction blocking lane near Broadway'],
       accessibility: 'Steep inclines, lacks structural tactile guide lines',
       isWheelchairFriendly: false,
     },
@@ -77,7 +76,7 @@ export default function TabTwoScreen() {
       sidewalkInfo: '95% coverage, wide paths along retail sector',
       crossingInfo: 'Fully signalized standard crosswalk grids',
       hazardsCount: 1,
-      hazardsList: ['🌳 Fallen branch debris partially blocking side avenue'],
+      hazardsList: ['Fallen branch debris partially blocking side avenue'],
       accessibility: 'Gentle grade slopes, optimal ambient lighting density',
       isWheelchairFriendly: true,
     },
@@ -99,7 +98,6 @@ export default function TabTwoScreen() {
   return (
     <ScrollView
       style={[styles.scrollView, { backgroundColor: theme.background }]}
-      styleURL=""
       contentInset={insets}
       contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
       
@@ -131,7 +129,9 @@ export default function TabTwoScreen() {
                   <View style={styles.routeNameWrapper}>
                     <ThemedText style={styles.routeNameText}>{route.name}</ThemedText>
                     {route.isWheelchairFriendly && (
-                      <ThemedText style={styles.accessibleBadge}>♿</ThemedText>
+                      <View style={styles.accessibleBadge}>
+                        <SymbolView name="figure.roll.runningpace" size={13} tintColor={theme.text} />
+                      </View>
                     )}
                   </View>
                   <View style={[styles.ribbonTag, { backgroundColor: route.tagColor }]}>
@@ -158,7 +158,7 @@ export default function TabTwoScreen() {
                       styles.metricTextBold, 
                       { color: route.hazardsCount > 0 ? '#e74c3c' : '#2ecc71' }
                     ]}>
-                      {route.hazardsCount === 0 ? 'Clear Path' : `${route.hazardsCount} Alert`}
+                      {route.hazardsCount === 0 ? 'Clear path' : `${route.hazardsCount} alert`}
                     </ThemedText>
                   </View>
                 </View>
@@ -273,7 +273,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   accessibleBadge: {
-    fontSize: 16,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    opacity: 0.8,
   },
   ribbonTag: {
     paddingHorizontal: Spacing.two,
