@@ -164,6 +164,8 @@ def main():
     ap.add_argument("--out", default="backend/ml/street/data/yolo")
     ap.add_argument("--hash-thresh", type=int, default=4)  # 64-bit phash hamming
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--oversample-min", type=int, default=300,
+                    help="duplicate train images for rare classes (0 = off)")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.classes))
@@ -260,7 +262,7 @@ def main():
                 train_inst[(sp, cls_names[int(line.split()[0])])] += 1
     report = {
         "images_total_raw": images_raw,
-        "images_after_md5_actually": len(index),
+        "images_after_md5": len(index),
         "images_after_phash": len(keep),
         "duplicates_removed": dups,
         "instances_per_class_total": dict(cls_count),
@@ -273,6 +275,36 @@ def main():
     for sp in ("train", "val", "test"):
         report["instances_per_class_split"][sp] = {
             c: train_inst[(sp, c)] for c in cls_names}
+
+    # oversample rare classes (task spec): duplicate train images that contain
+    # any class below --oversample-min train instances
+    dup_count = 0
+    if args.oversample_min > 0:
+        rare = [c for c in cls_names if train_inst[("train", c)] < args.oversample_min]
+        imgs = sorted((out / "images" / "train").glob("*"))
+        rng.shuffle(imgs)
+        for c in rare:
+            need = args.oversample_min - train_inst[("train", c)]
+            for img_path in imgs:
+                if need <= 0:
+                    break
+                lbl = (out / "labels" / "train" /
+                       (img_path.stem + ".txt"))
+                if not lbl.exists():
+                    continue
+                have = sum(1 for line in lbl.read_text().splitlines()
+                           if line.split() and cls_names[int(line.split()[0])] == c)
+                if have == 0:
+                    continue
+                stem, ext = img_path.stem, img_path.suffix
+                shutil.copy(img_path, img_path.with_name(f"{stem}_dup{c}{ext}"))
+                shutil.copy(lbl, lbl.with_name(f"{lbl.stem}_dup{c}.txt"))
+                dup_count += 1
+                need -= have
+                imgs.append(img_path.with_name(f"{stem}_dup{c}{ext}"))
+        if rare:
+            report["oversample"] = {"classes": rare, "images_duplicated": dup_count}
+
     (out / "dataset_report.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
 
