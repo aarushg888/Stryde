@@ -29,48 +29,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from PIL import UnidentifiedImageError
 from pydantic import BaseModel, Field
 from typing import List
+import pandas as pd
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO = ROOT  # backend/.. == repo root
 
-TOY_GRAPH = [
-    {
-        "A": {"B", "C"},
-        "B": {"A", "C", "D"},
-        "C": {"A", "B", "D"},
-        "D": {"B", "C", "E"},
-        "E": {"D", "F"},
-        "F": {"E", "G"},
-        "G": {"F"},
-    },
-    {
-        ("A", "B"): 1, ("B", "A"): 1,
-        ("A", "C"): 4, ("C", "A"): 4,
-        ("B", "C"): 2, ("C", "B"): 2,
-        ("B", "D"): 5, ("D", "B"): 5,
-        ("C", "D"): 1, ("D", "C"): 1,
-        ("D", "E"): 3, ("E", "D"): 3,
-        ("E", "F"): 2, ("F", "E"): 2,
-        ("F", "G"): 2, ("G", "F"): 2,
-    },
-]
 
 
 def _load_graph():
     """[(adjacency, tube_weights), meta] from the router handoff, else toy graph."""
     data = REPO / "data" / "router_graph"
-    if not (data / "adjacency.json").exists():
-        return TOY_GRAPH, {"nodes": 7, "tubes": 9, "fallback": True}
-    try:
-        from backend.ml.aerial.router_graph import load
-        graphs, meta = load(str(data))
-    except Exception:  # pragma: no cover - corrupt data should still let the app run
-        return TOY_GRAPH, {"nodes": 7, "tubes": 9, "fallback": True}
+    from backend.ml.aerial.router_graph import load
+    graphs, meta = load(str(data))
     adjacency, tubes = graphs
-    # A* indexes graph[1][(a, b)] for both traversal directions; the handoff
-    # stores one direction per pair, so mirror weights (symmetric tube length).
-    for (a, b), w in list(tubes.items()):
-        tubes.setdefault((b, a), w)
     return [adjacency, tubes], meta
 
 
@@ -112,6 +83,7 @@ def a_star(start, goal, graph, heuristic=heuristic):
 
 
 GRAPH, _META = _load_graph()
+latlngs = _META.get("node_latlng") or {}
 NO_DATA = """hazard detector is warming up — model weights are still training
 (run backend/ml/street/train_colab.ipynb, then drop best.pt into
 backend/ml/street/weights/)."""
@@ -129,7 +101,6 @@ app.add_middleware(
 
 def _nearest_nodes(lat, lng, k: int = 6):
     """k nearest graph nodes to a lat,lng (haversine over node coords)."""
-    latlngs = _META.get("node_latlng") or {}
     if not latlngs:
         raise HTTPException(status_code=400, detail="graph has no coordinates; pass a node id")
     scored = []
@@ -195,11 +166,7 @@ def search(start: str = Query(...), goal: str = Query(...)):
     s_goal = goal.strip()
     s_cands = _resolve_candidates(s_start)
     g_cands = _resolve_candidates(s_goal)
-    latlngs = _META.get("node_latlng") or {}
 
-    # The aerial graph is fragmented into sidewalk components; a single nearest
-    # node per side can easily pair across components. Try the nearest few
-    # candidates on each side until a walkable path exists.
     path = cost = s_used = g_used = None
     tried = 0
     for sc in s_cands:
@@ -239,6 +206,7 @@ def search(start: str = Query(...), goal: str = Query(...)):
             geometry.append(ll)
     geometry += [p for p in ([g_point] if g_point else [])]
     geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
+    if s_used is None or g_used is None: return
 
     snap_connect = s_used["dist_m"] + g_used["dist_m"]
 
@@ -260,7 +228,6 @@ def search(start: str = Query(...), goal: str = Query(...)):
         "ratio": round(round(cost + snap_connect, 1) / straight_m, 3)
                   if straight_m and straight_m > 0 else None,
         "geometry": geometry,
-        "graph": {"nodes": _META.get("nodes"), "tubes": _META.get("tubes")},
     }
 
 
@@ -281,62 +248,19 @@ def _coverage_file(area: str) -> pathlib.Path:
     return file
 
 
-_INCIDENTS_PATH = REPO / "data" / "incidents.jsonl"
+_INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
+incident_df = pd.read_csv(_INCIDENTS_PATH)
 
-
-class IncidentIn(BaseModel):
-    type: str = Field(min_length=1, max_length=64)
-    location: str = Field(min_length=1, max_length=200)
-    description: str = Field(default="", max_length=2000)
-    detected: List[str] = Field(default_factory=list, max_length=32)
-
+def find_incident_near(lat, lng, k: int = 6):
+    # scored = []
+    # for n, (nlat, nlng) in latlngs.items():
+    #         dy = (nlat - lat) * 111_320.0
+    #         dx = (nlng - lng) * 111_320.0 * math.cos(math.radians(lat))
+    #         if (dx )
+    pass
 
 def _load_incidents():
-    if not _INCIDENTS_PATH.exists():
-        return []
-    out = []
-    for line in _INCIDENTS_PATH.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line:
-            try:
-                out.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return out
-
-
-@app.post("/incidents")
-def add_incident(inc: IncidentIn):
-    """Persist one hazard report (JSON lines store at data/incidents.jsonl)."""
-    latlng = None
-    lat_s, _, lng_s = inc.location.partition(",")
-    if lng_s:
-        try:
-            lat_v, lng_v = float(lat_s), float(lng_s)
-            if -90 < lat_v < 90 and -180 < lng_v < 180:
-                latlng = [lat_v, lng_v]
-        except ValueError:
-            pass
-    existing = _load_incidents()
-    record = {
-        "id": len(existing) + 1,
-        "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "type": inc.type.strip(),
-        "location": inc.location.strip(),
-        "latlng": latlng,
-        "description": inc.description.strip(),
-        "detected": inc.detected,
-    }
-    with _INCIDENTS_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return record
-
-
-@app.get("/incidents")
-def list_incidents(limit: int = Query(200, ge=1, le=1000)):
-    """Most recent reports first (map pins for the app)."""
-    return {"incidents": _load_incidents()[-limit:][::-1],
-            "total_in_file": len(_load_incidents())}
+    pass
 
 
 @app.get("/coverage")
@@ -359,8 +283,6 @@ def health():
     return {
         "ok": True,
         "weights": _weights_status(),
-        "graph": {"nodes": _META.get("nodes"), "tubes": _META.get("tubes"),
-                  "fallback": bool(_META.get("fallback"))},
         "coverage": [a for a, rel in _COVERAGE.items() if (REPO / rel).exists()],
     }
 

@@ -1,38 +1,51 @@
-import React, { useEffect, useState } from 'react';
+import { api, BASE_URL, type RouteResult } from "@/api/api";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import { WebBadge } from "@/components/web-badge";
 import {
-  Platform, StyleSheet, TextInput, TouchableOpacity, View,
+  BottomTabInset,
+  Colors,
+  MaxContentWidth,
+  Spacing,
+} from "@/constants/theme";
+import { MaterialIcons } from "@expo/vector-icons";
+import React, { useEffect, useState } from "react";
+import {
+  Platform,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
   useColorScheme,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialIcons } from '@expo/vector-icons';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing, Colors } from '@/constants/theme';
-import MapView, { Marker, Polyline } from 'react-native-maps';
-import { api, BASE_URL, type RouteResult } from '@/api/api';
+  View,
+} from "react-native";
+import MapView, { Marker, Polyline } from "react-native-maps";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 // MVP coverage area kept in sync with the backend's built graph (Logan Circle).
 const DC_REGION = {
-  latitude: 38.9137, longitude: -77.0325,
-  latitudeDelta: 0.012, longitudeDelta: 0.012,
+  latitude: 38.9137,
+  longitude: -77.0325,
+  latitudeDelta: 0.012,
+  longitudeDelta: 0.012,
 };
-const DEMO_START = '38.9131,-77.0305';
-const DEMO_GOAL = '38.9184,-77.0248';
+const DEMO_START = "38.9131,-77.0305";
+const DEMO_GOAL = "38.9184,-77.0248";
 
 const WALK_SPEED_KMH = 4.5;
 
 export default function HomeScreen() {
   const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const colors = Colors[scheme === "dark" ? "dark" : "light"];
 
-  const [startLocation, setStartLocation] = useState('');
-  const [destination, setDestination] = useState('');
+  const [startLocation, setStartLocation] = useState("");
+  const [destination, setDestination] = useState("");
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [routeStatus, setRouteStatus] = useState<string | null>(null);
   const [finding, setFinding] = useState(false);
-  const [svcState, setSvcState] = useState<'checking' | 'online' | 'warming' | 'offline'>('checking');
+  const [svcState, setSvcState] = useState<
+    "checking" | "online" | "warming" | "offline"
+  >("checking");
   const mapRef = React.useRef<MapView>(null);
 
   // Backend visibility pill: tells users whether the API is reachable before they type.
@@ -42,14 +55,17 @@ export default function HomeScreen() {
       try {
         const h = await api.health();
         if (!alive) return;
-        setSvcState(h.ok ? (h.weights ? 'online' : 'warming') : 'offline');
+        setSvcState(h.ok ? (h.weights ? "online" : "warming") : "offline");
       } catch {
-        if (alive) setSvcState('offline');
+        if (alive) setSvcState("offline");
       }
     };
     void poll();
     const id = setInterval(poll, 30000);
-    return () => { alive = false; clearInterval(id); };
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
   }, []);
 
   const loadDemo = () => {
@@ -66,27 +82,45 @@ export default function HomeScreen() {
 
   const handleFindRoute = async () => {
     if (!startLocation.trim() || !destination.trim()) {
-      setRouteStatus('Enter a start and a destination to plan a route.');
+      setRouteStatus("Enter a start and a destination to plan a route.");
       return;
     }
     setFinding(true);
     setRoute(null);
     setRouteError(null);
-    setRouteStatus('Finding the safest route…');
+    setRouteStatus("Finding the safest route…");
     try {
-      const result = await api.searchRoute(startLocation.trim(), destination.trim());
+      const result = await api.searchRoute(
+        startLocation.trim(),
+        destination.trim(),
+      );
       setRoute(result);
       const km = (result.total_cut_m / 1000).toFixed(2);
-      const mins = Math.max(1, Math.round((result.total_cut_m / 1000) / WALK_SPEED_KMH * 60));
-      const detour = result.straight_m && result.ratio ? ` · ${result.ratio}× straight line` : '';
-      setRouteStatus(`${km} km · about ${mins} min${detour} · ${result.path.length} segments`);
+      const mins = Math.max(
+        1,
+        Math.round((result.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
+      );
+      const detour =
+        result.straight_m && result.ratio
+          ? ` · ${result.ratio}× straight line`
+          : "";
+      setRouteStatus(
+        `${km} km · about ${mins} min${detour} · ${result.path.length} segments`,
+      );
       if (result.geometry.length > 1) {
         mapRef.current?.fitToCoordinates(
-          result.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng })),
-          { edgePadding: { top: 80, right: 60, bottom: 80, left: 60 }, animated: true });
+          result.geometry.map(([lat, lng]) => ({
+            latitude: lat,
+            longitude: lng,
+          })),
+          {
+            edgePadding: { top: 80, right: 60, bottom: 80, left: 60 },
+            animated: true,
+          },
+        );
       }
     } catch (e) {
-      setRouteError(e instanceof Error ? e.message : 'Route failed');
+      setRouteError(e instanceof Error ? e.message : "Route failed");
     } finally {
       setFinding(false);
     }
@@ -98,15 +132,23 @@ export default function HomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
         <View style={styles.header}>
-          <ThemedText type="title" style={styles.title}>Stryde</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.tagline}>
+          <ThemedText type="title" style={styles.title}>
+            Stryde
+          </ThemedText>
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={styles.tagline}
+          >
             Accessible pedestrian routing
           </ThemedText>
         </View>
 
-        <View style={[styles.mapCard, { borderColor: colors.backgroundElement }]}>
+        <View
+          style={[styles.mapCard, { borderColor: colors.backgroundElement }]}
+        >
           <MapView
             ref={mapRef}
             style={styles.map}
@@ -127,7 +169,7 @@ export default function HomeScreen() {
                 <Polyline
                   coordinates={routeCoords}
                   strokeWidth={4}
-                  strokeColor={scheme === 'dark' ? '#2ecc71' : '#27ae60'}
+                  strokeColor={scheme === "dark" ? "#2ecc71" : "#27ae60"}
                   lineCap="round"
                   lineJoin="round"
                 />
@@ -152,34 +194,46 @@ export default function HomeScreen() {
         <View style={{ flex: 1 }} accessibilityLabel="Route planner">
           <View style={styles.plannerCard}>
             <View style={styles.plannerHeaderRow}>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.plannerLabel}>
+              <ThemedText
+                type="small"
+                themeColor="textSecondary"
+                style={styles.plannerLabel}
+              >
                 Plan a route
               </ThemedText>
-              {svcState !== 'online' && (
+              {svcState !== "online" && (
                 <View
                   accessibilityLabel={`Backend status: ${svcState}`}
                   style={[
                     styles.svcPill,
-                    svcState === 'offline' && { backgroundColor: 'rgba(231,76,60,0.12)' },
-                    svcState === 'warming' && { backgroundColor: 'rgba(241,196,15,0.15)' },
+                    svcState === "offline" && {
+                      backgroundColor: "rgba(231,76,60,0.12)",
+                    },
+                    svcState === "warming" && {
+                      backgroundColor: "rgba(241,196,15,0.15)",
+                    },
                   ]}
                 >
                   <View
                     style={[
                       styles.svcDot,
-                      svcState === 'offline' && { backgroundColor: '#e74c3c' },
-                      svcState === 'warming' && { backgroundColor: '#f1c40f' },
-                      svcState === 'checking' && { backgroundColor: '#888' },
+                      svcState === "offline" && { backgroundColor: "#e74c3c" },
+                      svcState === "warming" && { backgroundColor: "#f1c40f" },
+                      svcState === "checking" && { backgroundColor: "#888" },
                     ]}
                   />
                   <ThemedText
                     style={[
                       styles.svcPillText,
-                      svcState === 'offline' && { color: '#e74c3c' },
-                      svcState === 'warming' && { color: '#b7950b' },
+                      svcState === "offline" && { color: "#e74c3c" },
+                      svcState === "warming" && { color: "#b7950b" },
                     ]}
                   >
-                    {svcState === 'warming' ? 'Detector warming up' : svcState === 'offline' ? 'Backend offline' : 'Checking…'}
+                    {svcState === "warming"
+                      ? "Detector warming up"
+                      : svcState === "offline"
+                        ? "Backend offline"
+                        : "Checking…"}
                   </ThemedText>
                 </View>
               )}
@@ -195,11 +249,19 @@ export default function HomeScreen() {
 
             {/* Start point */}
             <View style={styles.fieldRow}>
-              <View style={[styles.iconBadge, { backgroundColor: 'rgba(46, 204, 113, 0.12)' }]}>
+              <View
+                style={[
+                  styles.iconBadge,
+                  { backgroundColor: "rgba(46, 204, 113, 0.12)" },
+                ]}
+              >
                 <MaterialIcons name="my-location" size={16} color="#2ecc71" />
               </View>
               <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.backgroundElement }]}
+                style={[
+                  styles.input,
+                  { color: colors.text, borderColor: colors.backgroundElement },
+                ]}
                 placeholder="Starting point (GPS, node id, or lat,lng)"
                 placeholderTextColor="#888"
                 value={startLocation}
@@ -216,7 +278,7 @@ export default function HomeScreen() {
               {startLocation.length > 0 && (
                 <TouchableOpacity
                   style={styles.clearButton}
-                  onPress={() => setStartLocation('')}
+                  onPress={() => setStartLocation("")}
                   accessibilityRole="button"
                   accessibilityLabel="Clear starting point"
                 >
@@ -238,11 +300,19 @@ export default function HomeScreen() {
 
             {/* Destination */}
             <View style={styles.fieldRow}>
-              <View style={[styles.iconBadge, { backgroundColor: 'rgba(231, 76, 60, 0.12)' }]}>
+              <View
+                style={[
+                  styles.iconBadge,
+                  { backgroundColor: "rgba(231, 76, 60, 0.12)" },
+                ]}
+              >
                 <MaterialIcons name="flag" size={16} color="#e74c3c" />
               </View>
               <TextInput
-                style={[styles.input, { color: colors.text, borderColor: colors.backgroundElement }]}
+                style={[
+                  styles.input,
+                  { color: colors.text, borderColor: colors.backgroundElement },
+                ]}
                 placeholder="Destination (node id, or lat,lng)"
                 placeholderTextColor="#888"
                 value={destination}
@@ -260,7 +330,7 @@ export default function HomeScreen() {
               {destination.length > 0 && (
                 <TouchableOpacity
                   style={styles.clearButton}
-                  onPress={() => setDestination('')}
+                  onPress={() => setDestination("")}
                   accessibilityRole="button"
                   accessibilityLabel="Clear destination"
                 >
@@ -280,7 +350,7 @@ export default function HomeScreen() {
             >
               <MaterialIcons name="verified-user" size={18} color="#ffffff" />
               <ThemedText style={styles.actionButtonText}>
-                {finding ? 'Routing…' : 'Find safer route'}
+                {finding ? "Routing…" : "Find safer route"}
               </ThemedText>
             </TouchableOpacity>
           </View>
@@ -289,14 +359,20 @@ export default function HomeScreen() {
           {(routeError || routeStatus) && (
             <ThemedView
               type="backgroundElement"
-              style={[styles.statusCard, routeError ? styles.statusCardError : null]}
+              style={[
+                styles.statusCard,
+                routeError ? styles.statusCardError : null,
+              ]}
             >
               <MaterialIcons
-                name={routeError ? 'error-outline' : 'route'}
+                name={routeError ? "error-outline" : "route"}
                 size={18}
-                color={routeError ? '#e74c3c' : '#2ecc71'}
+                color={routeError ? "#e74c3c" : "#2ecc71"}
               />
-              <ThemedText style={[styles.statusText, { color: colors.text }]} adjustsFontSizeToFit={false}>
+              <ThemedText
+                style={[styles.statusText, { color: colors.text }]}
+                adjustsFontSizeToFit={false}
+              >
                 {routeError ?? routeStatus}
               </ThemedText>
             </ThemedView>
@@ -317,18 +393,27 @@ export default function HomeScreen() {
                   {route.goal_node}
                 </ThemedText>
               </View>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.summaryMeta}>
-                Snap: {route.snap.start_m} m start, {route.snap.goal_m} m end · network
-                distance {route.cost} m · {route.graph.nodes} graph nodes
+              <ThemedText
+                type="small"
+                themeColor="textSecondary"
+                style={styles.summaryMeta}
+              >
+                Snap: {route.snap.start_m} m start, {route.snap.goal_m} m end ·
+                network distance {route.cost} m
               </ThemedText>
             </ThemedView>
           )}
 
-          <ThemedText type="small" themeColor="textSecondary" style={styles.helper}>
-            API target: {BASE_URL} — backend must run on port 8100 (README: /search, /detect, /coverage).
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={styles.helper}
+          >
+            API target: {BASE_URL} — backend must run on port 8100 (README:
+            /search, /detect, /coverage).
           </ThemedText>
 
-          {Platform.OS === 'web' && <WebBadge />}
+          {Platform.OS === "web" && <WebBadge />}
         </View>
       </SafeAreaView>
     </ThemedView>
@@ -342,85 +427,85 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     gap: Spacing.three,
     maxWidth: MaxContentWidth,
-    alignSelf: 'center',
-    width: '100%',
+    alignSelf: "center",
+    width: "100%",
   },
   header: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingTop: Spacing.one,
     paddingBottom: Spacing.one,
   },
   title: {
-    textAlign: 'center',
+    textAlign: "center",
   },
   tagline: {
-    textAlign: 'center',
+    textAlign: "center",
     letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    fontWeight: '600',
+    textTransform: "uppercase",
+    fontWeight: "600",
   },
   mapCard: {
     height: 250,
     borderRadius: Spacing.three,
-    overflow: 'hidden',
+    overflow: "hidden",
     borderWidth: 1,
   },
-  map: { width: '100%', height: '100%' },
+  map: { width: "100%", height: "100%" },
   plannerCard: {
     gap: Spacing.two,
-    backgroundColor: 'rgba(126, 123, 123, 0.05)',
+    backgroundColor: "rgba(126, 123, 123, 0.05)",
     borderWidth: 1,
-    borderColor: 'rgba(126, 123, 123, 0.12)',
+    borderColor: "rgba(126, 123, 123, 0.12)",
     borderRadius: Spacing.three,
     padding: Spacing.three,
   },
   plannerHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
   },
   plannerLabel: {
-    fontWeight: '700',
-    textTransform: 'uppercase',
+    fontWeight: "700",
+    textTransform: "uppercase",
     letterSpacing: 0.8,
   },
   svcPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 5,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: 'rgba(149,165,166,0.15)',
+    backgroundColor: "rgba(149,165,166,0.15)",
   },
-  svcDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#2ecc71' },
+  svcDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#2ecc71" },
   svcPillText: { fontSize: 11 },
   textChip: {
     borderWidth: 1,
-    borderColor: 'rgba(52, 152, 219, 0.4)',
-    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+    borderColor: "rgba(52, 152, 219, 0.4)",
+    backgroundColor: "rgba(52, 152, 219, 0.1)",
     borderRadius: Spacing.three,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     minHeight: 36,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   textChipText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#3498db',
+    fontWeight: "600",
+    color: "#3498db",
   },
   fieldRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.two,
   },
   iconBadge: {
     width: 44,
     height: 44,
     borderRadius: Spacing.three,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   input: {
     flex: 1,
@@ -429,62 +514,62 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     paddingHorizontal: Spacing.three,
     fontSize: 15,
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
   },
   clearButton: {
     width: 44,
     height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     borderRadius: Spacing.four,
   },
   swapButton: {
-    alignSelf: 'center',
+    alignSelf: "center",
     width: 36,
     height: 36,
     marginTop: -Spacing.three,
     marginBottom: -Spacing.two,
     borderRadius: Spacing.four,
     borderWidth: 1,
-    borderColor: 'rgba(52, 152, 219, 0.4)',
-    backgroundColor: 'rgba(52, 152, 219, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderColor: "rgba(52, 152, 219, 0.4)",
+    backgroundColor: "rgba(52, 152, 219, 0.12)",
+    justifyContent: "center",
+    alignItems: "center",
     zIndex: 2,
   },
   actionButton: {
-    width: '100%',
+    width: "100%",
     height: 48,
-    backgroundColor: '#2ecc71',
+    backgroundColor: "#2ecc71",
     borderRadius: Spacing.three,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: Spacing.one,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: Spacing.one,
   },
   actionButtonText: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   statusCard: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: Spacing.two,
-    alignItems: 'center',
+    alignItems: "center",
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
     borderRadius: Spacing.three,
   },
   statusCardError: {
     borderWidth: 1,
-    borderColor: 'rgba(231, 76, 60, 0.35)',
+    borderColor: "rgba(231, 76, 60, 0.35)",
   },
   statusText: {
     fontSize: 13,
     lineHeight: 18,
     flex: 1,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   summaryCard: {
     gap: Spacing.two,
@@ -493,8 +578,8 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
   },
   summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.two,
   },
   summaryRowLast: {
@@ -504,19 +589,19 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: Spacing.four,
-    backgroundColor: '#2ecc71',
+    backgroundColor: "#2ecc71",
   },
-  summaryDotGoal: { backgroundColor: '#e74c3c' },
+  summaryDotGoal: { backgroundColor: "#e74c3c" },
   summaryText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: "600",
     flexShrink: 1,
   },
   summaryMeta: {
     lineHeight: 18,
   },
   helper: {
-    textAlign: 'center',
+    textAlign: "center",
     opacity: 0.65,
     paddingBottom: BottomTabInset + Spacing.three,
     paddingHorizontal: Spacing.two,
