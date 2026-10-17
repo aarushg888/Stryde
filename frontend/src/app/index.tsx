@@ -21,7 +21,12 @@ import {
   useColorScheme,
   View,
 } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import MapView, {
+  Marker,
+  Polyline,
+  type MapPressEvent,
+  type MarkerDragStartEndEvent,
+} from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // MVP coverage area kept in sync with the backend's built graph (Logan Circle).
@@ -35,6 +40,30 @@ const DEMO_START = "38.9131,-77.0305";
 const DEMO_GOAL = "38.9184,-77.0248";
 
 const WALK_SPEED_KMH = 4.5;
+
+/**
+ * Parse a "lat,lng" string into a coordinate, or null when it isn't one
+ * (e.g. a graph node id like "n100"). The backend /search accepts
+ * "lat,lng" strings directly, so a map tap converts straight into that
+ * contract without any geocoding round-trip.
+ */
+function parseLatLng(
+  value: string,
+): { latitude: number; longitude: number } | null {
+  const match = value
+    .trim()
+    .match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) return null;
+  const latitude = parseFloat(match[1]);
+  const longitude = parseFloat(match[2]);
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  return { latitude, longitude };
+}
+
+/** Format a coordinate the way the backend expects it. */
+function formatLatLng(coordinate: { latitude: number; longitude: number }) {
+  return `${coordinate.latitude.toFixed(6)},${coordinate.longitude.toFixed(6)}`;
+}
 
 export default function HomeScreen() {
   const scheme = useColorScheme();
@@ -51,6 +80,41 @@ export default function HomeScreen() {
     "checking" | "online" | "warming" | "offline"
   >("checking");
   const mapRef = React.useRef<MapView>(null);
+
+  // When set, the next map tap writes into that field as a "lat,lng" pair.
+  const [picking, setPicking] = useState<"start" | "destination" | null>(null);
+
+  // Live pins derived from the text inputs: no separate pin state to keep in
+  // sync — the inputs remain the single source of truth for routing.
+  const startPin = parseLatLng(startLocation);
+  const endPin = parseLatLng(destination);
+
+  const handleMapPress = (event: MapPressEvent) => {
+    if (!picking) return;
+    const value = formatLatLng(event.nativeEvent.coordinate);
+    if (picking === "start") {
+      setStartLocation(value);
+    } else {
+      setDestination(value);
+    }
+    setPicking(null);
+  };
+
+  // Dragging a pin re-writes its coordinate so the next search uses the
+  // adjusted position.
+  const handlePinDrag = (
+    which: "start" | "destination",
+    event: MarkerDragStartEndEvent,
+  ) => {
+    const value = formatLatLng(event.nativeEvent.coordinate);
+    if (which === "start") {
+      setStartLocation(value);
+    } else {
+      setDestination(value);
+    }
+    setRoute(null);
+    setRouteError(null);
+  };
 
   // Backend visibility pill: tells users whether the API is reachable before they type.
   useEffect(() => {
@@ -215,7 +279,30 @@ export default function HomeScreen() {
                 showsUserLocation={false}
                 showsMyLocationButton={false}
                 toolbarEnabled={false}
+                onPress={handleMapPress}
               >
+                {/* Exact points the user placed on the map (draggable). */}
+                {startPin && (
+                  <Marker
+                    coordinate={startPin}
+                    title="Start"
+                    description={startLocation}
+                    pinColor="#2ecc71"
+                    draggable
+                    onDragEnd={(event) => handlePinDrag("start", event)}
+                  />
+                )}
+                {endPin && (
+                  <Marker
+                    coordinate={endPin}
+                    title="Destination"
+                    description={destination}
+                    pinColor="#e74c3c"
+                    draggable
+                    onDragEnd={(event) => handlePinDrag("destination", event)}
+                  />
+                )}
+
                 {route && routeCoords.length > 1 && (
                   <>
                     <Polyline
@@ -232,18 +319,25 @@ export default function HomeScreen() {
                       lineCap="round"
                       lineJoin="round"
                     />
-                    <Marker
-                      coordinate={routeCoords[0]}
-                      title="Start"
-                      description={route.start_node}
-                      pinColor="#2ecc71"
-                    />
-                    <Marker
-                      coordinate={routeCoords[routeCoords.length - 1]}
-                      title="Destination"
-                      description={route.goal_node}
-                      pinColor="#e74c3c"
-                    />
+                    {/* Snapped graph nodes — only shown when the user typed a
+                        node id rather than a coordinate, so pins aren't
+                        duplicated. */}
+                    {!startPin && (
+                      <Marker
+                        coordinate={routeCoords[0]}
+                        title="Start"
+                        description={route.start_node}
+                        pinColor="#2ecc71"
+                      />
+                    )}
+                    {!endPin && (
+                      <Marker
+                        coordinate={routeCoords[routeCoords.length - 1]}
+                        title="Destination"
+                        description={route.goal_node}
+                        pinColor="#e74c3c"
+                      />
+                    )}
                   </>
                 )}
               </MapView>
@@ -304,6 +398,75 @@ export default function HomeScreen() {
                     <ThemedText style={styles.textChipText}>Demo route</ThemedText>
                   </TouchableOpacity>
                 </View>
+
+                {/* Tap-to-set pins: arm a field, then tap the map. */}
+                <View style={styles.pickRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.pickChip,
+                      picking === "start" && styles.pickChipActive,
+                    ]}
+                    onPress={() =>
+                      setPicking((current) =>
+                        current === "start" ? null : "start",
+                      )
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel="Set starting point by tapping the map"
+                  >
+                    <MaterialIcons
+                      name="my-location"
+                      size={14}
+                      color={picking === "start" ? "#ffffff" : "#2ecc71"}
+                    />
+                    <ThemedText
+                      style={[
+                        styles.pickChipText,
+                        picking === "start" && styles.pickChipTextActive,
+                      ]}
+                    >
+                      Set start
+                    </ThemedText>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.pickChip,
+                      picking === "destination" && styles.pickChipActive,
+                    ]}
+                    onPress={() =>
+                      setPicking((current) =>
+                        current === "destination" ? null : "destination",
+                      )
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel="Set destination by tapping the map"
+                  >
+                    <MaterialIcons
+                      name="flag"
+                      size={14}
+                      color={picking === "destination" ? "#ffffff" : "#e74c3c"}
+                    />
+                    <ThemedText
+                      style={[
+                        styles.pickChipText,
+                        picking === "destination" && styles.pickChipTextActive,
+                      ]}
+                    >
+                      Set destination
+                    </ThemedText>
+                  </TouchableOpacity>
+                </View>
+                {picking && (
+                  <ThemedText
+                    type="small"
+                    themeColor="textSecondary"
+                    style={styles.pickHint}
+                  >
+                    Tap the map to set your{" "}
+                    {picking === "start" ? "starting point" : "destination"} ·
+                    tap the chip again to cancel
+                  </ThemedText>
+                )}
 
                 {/* Start point */}
                 <View style={styles.fieldRow}>
@@ -580,6 +743,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#3498db",
+  },
+  pickRow: {
+    flexDirection: "row",
+    gap: Spacing.two,
+  },
+  pickChip: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "rgba(126, 123, 123, 0.35)",
+    backgroundColor: "rgba(126, 123, 123, 0.08)",
+    borderRadius: Spacing.three,
+    paddingVertical: Spacing.two,
+    minHeight: 40,
+  },
+  pickChipActive: {
+    backgroundColor: "#3498db",
+    borderColor: "#3498db",
+  },
+  pickChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  pickChipTextActive: {
+    color: "#ffffff",
+  },
+  pickHint: {
+    textAlign: "center",
+    fontStyle: "italic",
   },
   fieldRow: {
     flexDirection: "row",
