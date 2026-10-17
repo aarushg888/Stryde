@@ -79,7 +79,7 @@ def generate_a_star(state, explored, graph):
       path.append(current)
       parent = current
       current = explored[parent][0]
-   return path[::-1], cost 
+   return path[::-1], cost
 
 def get_accessibility_costs(s,a,node_ll, graph):
     type = graph[2][(s,a)]
