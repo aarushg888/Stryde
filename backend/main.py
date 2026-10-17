@@ -4,7 +4,7 @@ Merges the router team's A* /search (start/end nodes over a graph of
 [adjacency, tube-weights]) with the ML layers' data:
 
   /search    GET  start,goal = node id ("n123") OR "lat,lng"  -> path + cost +
-                  geometry ([[lat,lng],...]) for the map polyline
+                   geometry ([[lat,lng],...]) + straight_m/ratio detour metrics
   /coverage  GET  area=demo|test|nova -> aerial-inferred sidewalk/crosswalk GeoJSON
   /detect    POST multipart image + conf -> barrier detections (YOLO11s;
                   503 + clear message while weights are still training)
@@ -175,6 +175,15 @@ def root():
     return {"message": "Stryde MVP API", "routes": ["/search", "/coverage", "/detect", "/health"]}
 
 
+def _haversine(a, b):
+    lat1, lng1, lat2, lng2 = a[0], a[1], b[0], b[1]
+    p = math.pi / 180.0
+    hav = (0.5 - math.cos((lat2 - lat1) * p) / 2.0
+           + math.cos(lat1 * p) * math.cos(lat2 * p)
+           * (1 - math.cos((lng2 - lng1) * p)) / 2.0)
+    return 12742_000.0 * math.asin(math.sqrt(hav))
+
+
 @app.get("/search")
 def search(start: str = Query(...), goal: str = Query(...)):
     s_start = start.strip()
@@ -228,6 +237,11 @@ def search(start: str = Query(...), goal: str = Query(...)):
     geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
 
     snap_connect = s_used["dist_m"] + g_used["dist_m"]
+
+    straight_m = None
+    if s_point and g_point:
+        straight_m = round(_haversine(s_point, g_point), 1)
+
     return {
         "start": start, "goal": goal,
         "start_node": s_used["node"], "goal_node": g_used["node"],
@@ -238,6 +252,9 @@ def search(start: str = Query(...), goal: str = Query(...)):
         "snap_candidates_tried": tried,
         "path": path, "cost": cost,               # tube-only network meters
         "total_cut_m": round(cost + snap_connect, 1),  # incl. both snaps
+        "straight_m": straight_m,  # crow-flies; null for node-id inputs
+        "ratio": round(round(cost + snap_connect, 1) / straight_m, 3)
+                  if straight_m and straight_m > 0 else None,
         "geometry": geometry,
         "graph": {"nodes": _META.get("nodes"), "tubes": _META.get("tubes")},
     }
