@@ -145,6 +145,6 @@ Run `backend/ml/street/train_colab.ipynb` on a GPU runtime, unzip
 `weights_payload.zip` into the four repo paths it maps to, then:
 ```
 backend/tile2net/.venv/bin/python backend/ml/street/scripts/eval_detector.py --verify   # re-verify street.json sanity
-backend/tile2net/.venv/bin/python -m backend.ml.serve --port 8000                        # serve
+backend/tile2net/.venv/bin/python -m uvicorn backend.ml.serve:app --host 0.0.0.0 --port 8100   # serve
 ```
 No re-tuning on test after that point.
