@@ -1,19 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { NativeSyntheticEvent } from 'react-native';
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline, type LongPressEvent } from 'react-native-maps';
+import {
+  Camera,
+  GeoJSONSource,
+  Layer,
+  Map,
+  Marker,
+  UserLocation,
+  type CameraRef,
+  type MapRef,
+  type PressEvent as MapPressEvent,
+} from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../stride/colors';
-import { PROFILES, type Profile } from '../stride/profiles';
+import { PROFILES } from '../stride/profiles';
 import {
   formatDistance,
   formatDuration,
@@ -28,18 +38,39 @@ import {
 // Used when the device can't give us a GPS fix (common on emulators): downtown DC.
 const FALLBACK_LOCATION: LatLng = { latitude: 38.9072, longitude: -77.0369 };
 
+// Free vector tiles, no API key. Falls back to demotiles only if this is unreachable.
+const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+
+// MapLibre wants [longitude, latitude]; the rest of our code uses latitude/longitude.
+function toLngLat(c: LatLng): [number, number] {
+  return [c.longitude, c.latitude];
+}
+
+function routeFeature(coords: LatLng[]): GeoJSON.Feature {
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: {
+      type: 'LineString',
+      coordinates: coords.map(toLngLat),
+    },
+  };
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<CameraRef>(null);
+  const mapRef = useRef<MapRef>(null);
 
   const [me, setMe] = useState<LatLng | null>(null);
-  const [locError, setLocError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<Profile>(PROFILES[1]);
+  const [hasPermission, setHasPermission] = useState(false);
+  const [locNote, setLocNote] = useState<string | null>(null);
+  const [tilesFailed, setTilesFailed] = useState(false);
+
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Place[]>([]);
   const [dest, setDest] = useState<Place | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
-  const [selected, setSelected] = useState<Route['id']>('accessible');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,44 +78,68 @@ export default function HomeScreen() {
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
+      setHasPermission(status === 'granted');
       if (status !== 'granted') {
-        setLocError('Location is off. Turn it on in settings so Stride can start routes from where you are.');
+        setLocNote('Location is off. Starting from Washington DC. Turn it on in Settings.');
+        setMe(FALLBACK_LOCATION);
         return;
       }
       try {
-        const loc = await Location.getCurrentPositionAsync({});
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
         setMe({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
       } catch {
+        setLocNote('No GPS fix yet. Starting from Washington DC.');
         setMe(FALLBACK_LOCATION);
       }
     })();
   }, []);
 
-  // 2. Get routes whenever the destination or profile changes
+  // 2. Get routes whenever the destination changes
   useEffect(() => {
     if (!me || !dest) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    getRoutes(me, dest.coords, profile)
-      .then((r) => {
+    const from = me;
+    const to = dest.coords;
+
+    async function loadRoutes() {
+      setLoading(true);
+      setError(null);
+      try {
+        const r = await getRoutes(from, to, PROFILES[1]);
         if (cancelled) return;
         setRoutes(r);
-        setSelected(r.find((x) => x.id === 'accessible') ? 'accessible' : 'standard');
-        const all = r.flatMap((x) => x.coords);
-        mapRef.current?.fitToCoordinates(all, {
-          edgePadding: { top: 160, right: 40, bottom: 380, left: 40 },
-          animated: true,
-        });
-      })
-      .catch((e) => !cancelled && setError(e.message ?? 'Could not get a route.'))
-      .finally(() => !cancelled && setLoading(false));
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not get a route.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadRoutes();
     return () => {
       cancelled = true;
     };
-  }, [me, dest, profile]);
+  }, [me, dest]);
+
+  // 3. Fit the map to the routes
+  useEffect(() => {
+    if (routes.length === 0) return;
+    const all = routes.flatMap((r) => r.coords);
+    const lngs = all.map((c) => c.longitude);
+    const lats = all.map((c) => c.latitude);
+    cameraRef.current?.fitBounds(
+      [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)],
+      {
+        padding: { top: 130, bottom: 240, left: 40, right: 40 },
+        duration: 600,
+      },
+    );
+  }, [routes]);
 
   const runSearch = useCallback(async () => {
+    if (!query.trim()) return;
     try {
       setResults(await searchPlaces(query, me));
     } catch {
@@ -98,9 +153,11 @@ export default function HomeScreen() {
     setQuery(p.label);
   };
 
-  const onLongPress = (e: LongPressEvent) => {
-    pickPlace({ label: 'Dropped pin', coords: e.nativeEvent.coordinate });
-    setQuery('');
+  const onLongPress = (e: NativeSyntheticEvent<MapPressEvent>) => {
+    pickPlace({
+      label: 'Dropped pin',
+      coords: { latitude: e.nativeEvent.lngLat[1], longitude: e.nativeEvent.lngLat[0] },
+    });
   };
 
   const clear = () => {
@@ -111,48 +168,57 @@ export default function HomeScreen() {
     setError(null);
   };
 
-  if (locError) {
-    return (
-      <View style={[styles.center, { backgroundColor: colors.paper }]}>
-        <Text style={styles.title}>Stride</Text>
-        <Text style={[styles.body, { textAlign: 'center', marginTop: 8 }]}>{locError}</Text>
-      </View>
-    );
-  }
-
   if (!me) {
     return (
       <View style={[styles.center, { backgroundColor: colors.paper }]}>
         <ActivityIndicator color={colors.green} />
-        <Text style={[styles.body, { marginTop: 12 }]}>Finding your location</Text>
+        <Text style={[styles.noteText, { marginTop: 12 }]}>Finding your location</Text>
       </View>
     );
   }
 
-  const ordered = [...routes].sort((a, b) => (a.id === selected ? 1 : b.id === selected ? -1 : 0));
   const demo = routes.some((r) => r.demo);
 
   return (
     <View style={styles.fill}>
-      <MapView
+      <Map
         ref={mapRef}
         style={styles.fill}
-        initialRegion={{ ...me, latitudeDelta: 0.012, longitudeDelta: 0.012 }}
-        showsUserLocation
-        showsMyLocationButton={false}
+        mapStyle={MAP_STYLE}
         onLongPress={onLongPress}
+        attributionPosition={{ top: insets.top + 76, left: 8 }}
+        logo={false}
+        onDidFailLoadingMap={() => setTilesFailed(true)}
       >
-        {dest && <Marker coordinate={dest.coords} title={dest.label} />}
-        {ordered.map((r) => (
-          <Polyline
-            key={r.id}
-            coordinates={r.coords}
-            strokeWidth={r.id === selected ? 7 : 4}
-            strokeColor={r.id === 'accessible' ? colors.green : colors.standardRoute}
-            lineDashPattern={r.id === selected ? undefined : [8, 8]}
-          />
+        <Camera
+          ref={cameraRef}
+          initialViewState={{ center: [me.longitude, me.latitude], zoom: 15.5 }}
+          minZoom={10}
+          maxZoom={20}
+        />
+        {hasPermission && <UserLocation />}
+
+        {dest && (
+          <Marker id="destination" lngLat={toLngLat(dest.coords)}>
+            <View style={styles.pin} accessibilityLabel="Destination marker" />
+          </Marker>
+        )}
+
+        {routes.map((r) => (
+          <GeoJSONSource key={r.id} id={`route-${r.id}`} data={routeFeature(r.coords)}>
+            <Layer
+              type="line"
+              id={`route-${r.id}-line`}
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{
+                'line-color': r.id === 'accessible' ? colors.green : colors.standardRoute,
+                'line-width': r.id === 'accessible' ? 6 : 4,
+                'line-dasharray': r.id === 'accessible' ? [1, 0] : [2, 2],
+              }}
+            />
+          </GeoJSONSource>
         ))}
-      </MapView>
+      </Map>
 
       {/* Search */}
       <View style={[styles.searchWrap, { top: insets.top + 12 }]}>
@@ -162,10 +228,9 @@ export default function HomeScreen() {
             value={query}
             onChangeText={setQuery}
             onSubmitEditing={runSearch}
-            placeholder={hasRoutingKey ? 'Where to?' : 'Long-press the map to set a destination'}
+            placeholder={hasRoutingKey ? 'Where to?' : 'Add a routing key, or long-press the map'}
             placeholderTextColor={colors.inkSoft}
             returnKeyType="search"
-            editable={hasRoutingKey}
             accessibilityLabel="Destination"
           />
           {dest && (
@@ -174,90 +239,68 @@ export default function HomeScreen() {
             </Pressable>
           )}
         </View>
-        {results.length > 0 && (
-          <View style={styles.results}>
-            {results.map((p, i) => (
-              <Pressable
-                key={`${p.label}-${i}`}
-                style={[styles.resultRow, i > 0 && styles.resultDivider]}
-                onPress={() => pickPlace(p)}
-              >
-                <Text style={styles.body} numberOfLines={2}>
-                  {p.label}
-                </Text>
-              </Pressable>
-            ))}
+
+        {results.length > 0 &&
+          results.map((p, i) => (
+            <Pressable
+              key={`${p.label}-${i}`}
+              style={styles.resultRow}
+              onPress={() => pickPlace(p)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.body} numberOfLines={2}>
+                {p.label}
+              </Text>
+            </Pressable>
+          ))}
+
+        {locNote && (
+          <View style={styles.noteBanner}>
+            <Text style={styles.noteText}>{locNote}</Text>
           </View>
         )}
-      </View>
 
-      {/* Bottom panel */}
-      <View style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
-        <Text style={styles.label}>I'm getting around by</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          {PROFILES.map((p) => {
-            const on = p.id === profile.id;
-            return (
-              <Pressable
-                key={p.id}
-                onPress={() => setProfile(p)}
-                style={[styles.chip, on && styles.chipOn]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-              >
-                <Text style={[styles.chipText, on && styles.chipTextOn]}>{p.label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-        <Text style={[styles.note, { marginTop: 8 }]}>{profile.note}</Text>
-
-        {!dest && !loading && (
-          <Text style={[styles.body, { marginTop: 16 }]}>
-            Pick a destination to compare routes.
-          </Text>
-        )}
-
-        {loading && <ActivityIndicator style={{ marginTop: 16 }} color={colors.green} />}
-
-        {error && <Text style={[styles.error, { marginTop: 12 }]}>{error}</Text>}
-
-        {!loading &&
-          routes.map((r) => {
-            const on = r.id === selected;
-            const isAccessible = r.id === 'accessible';
-            return (
-              <Pressable
-                key={r.id}
-                onPress={() => setSelected(r.id)}
-                style={[styles.routeCard, on && styles.routeCardOn]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-              >
-                <View
-                  style={[
-                    styles.swatch,
-                    { backgroundColor: isAccessible ? colors.green : colors.standardRoute },
-                  ]}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.routeTitle}>{r.label} route</Text>
-                  <Text style={styles.note}>
-                    {formatDistance(r.distanceM)} · {formatDuration(r.durationS)}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })}
-
-        {demo && !loading && (
-          <View style={styles.demoBanner}>
-            <Text style={styles.demoText}>
-              Demo routes. Add EXPO_PUBLIC_ORS_KEY to .env for real ones.
+        {tilesFailed && (
+          <View style={styles.errorBanner}>
+            <Text style={[styles.noteText, { color: colors.amber }]}>
+              Map tiles failed to load. Check the connection.
             </Text>
           </View>
         )}
+
+        {error && (
+          <View style={styles.errorBanner}>
+            <Text style={[styles.noteText, { color: colors.amber }]}>{error}</Text>
+          </View>
+        )}
       </View>
+
+      {/* Route summary */}
+      {routes.length > 0 && (
+        <View style={[styles.panel, { paddingBottom: insets.bottom + 12 }]}>
+          {routes.map((r) => (
+            <View key={r.id} style={styles.routeRow}>
+              <View
+                style={[
+                  styles.swatch,
+                  { backgroundColor: r.id === 'accessible' ? colors.green : colors.standardRoute },
+                ]}
+                accessibilityLabel={`${r.label} route`}
+              />
+              <Text style={styles.body}>
+                {r.label} · {formatDistance(r.distanceM)} · {formatDuration(r.durationS)}
+              </Text>
+            </View>
+          ))}
+          {demo && (
+            <Text style={[styles.noteText, { color: colors.amber, marginTop: 8 }]}>
+              Demo routes. Add EXPO_PUBLIC_ORS_KEY to .env for real ones.
+            </Text>
+          )}
+        </View>
+      )}
+
+      {loading && <ActivityIndicator style={styles.activity} color={colors.green} />}
     </View>
   );
 }
@@ -265,11 +308,8 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  title: { fontSize: 28, fontWeight: '700', color: colors.ink },
   body: { fontSize: 16, color: colors.ink },
-  note: { fontSize: 14, color: colors.inkSoft },
-  error: { fontSize: 14, color: colors.amber },
-  label: { fontSize: 13, fontWeight: '600', color: colors.inkSoft, marginBottom: 8 },
+  noteText: { fontSize: 13, color: colors.inkSoft },
 
   searchWrap: { position: 'absolute', left: 16, right: 16 },
   searchBox: {
@@ -285,15 +325,38 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontSize: 16, color: colors.ink, paddingVertical: 12 },
   clear: { minHeight: 48, justifyContent: 'center', paddingLeft: 12 },
   clearText: { color: colors.green, fontWeight: '600', fontSize: 15 },
-  results: {
+  resultRow: {
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     backgroundColor: colors.card,
-    borderRadius: 12,
     borderWidth: 1,
+    borderTopWidth: 0,
     borderColor: colors.line,
-    marginTop: 6,
   },
-  resultRow: { paddingHorizontal: 16, paddingVertical: 14, minHeight: 48, justifyContent: 'center' },
-  resultDivider: { borderTopWidth: 1, borderTopColor: colors.line },
+
+  noteBanner: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: colors.amberSoft,
+  },
+  errorBanner: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: colors.amberSoft,
+  },
+
+  pin: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.ink,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
 
   panel: {
     position: 'absolute',
@@ -307,41 +370,8 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     padding: 16,
   },
-  chips: { gap: 8 },
-  chip: {
-    minHeight: 44,
-    paddingHorizontal: 16,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.card,
-    justifyContent: 'center',
-  },
-  chipOn: { backgroundColor: colors.green, borderColor: colors.green },
-  chipText: { fontSize: 15, color: colors.ink, fontWeight: '500' },
-  chipTextOn: { color: '#FFFFFF' },
+  routeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 40 },
+  swatch: { width: 6, height: 24, borderRadius: 3 },
 
-  routeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 12,
-    padding: 14,
-    minHeight: 64,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.card,
-  },
-  routeCardOn: { borderColor: colors.green, borderWidth: 2 },
-  swatch: { width: 6, height: 36, borderRadius: 3 },
-  routeTitle: { fontSize: 16, fontWeight: '600', color: colors.ink },
-
-  demoBanner: {
-    marginTop: 12,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: colors.amberSoft,
-  },
-  demoText: { fontSize: 13, color: colors.amber },
+  activity: { position: 'absolute', bottom: 24, alignSelf: 'center' },
 });
