@@ -189,7 +189,7 @@ def _haversine(a, b):
     return 12742_000.0 * math.asin(math.sqrt(hav))
 
 
-@app.get("/search")
+@app.post("/search")
 def search(start: str = Query(...), goal: str = Query(...)):
     s_start = start.strip()
     s_goal = goal.strip()
@@ -238,6 +238,7 @@ def search(start: str = Query(...), goal: str = Query(...)):
             geometry.append(ll)
     geometry += [p for p in ([g_point] if g_point else [])]
     geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
+    if s_used is None or g_used is None: return
 
     snap_connect = s_used["dist_m"] + g_used["dist_m"]
 
