@@ -1,4 +1,4 @@
-# Stryde — accessible pedestrian routing
+# Stryde an accessible pedestrian routing app
 
 Stryde routes pedestrians — especially wheelchair and low-visibility users —
 using **two ML layers** over real data:
