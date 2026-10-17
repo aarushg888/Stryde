@@ -16,3 +16,13 @@ ml/aerial/cache/
 
 # osmnx/overpass response cache
 /cache/
+
+# ml/street raw datasets + secrets + training runs (never committed)
+ml/street/.env
+ml/street/data/
+ml/street/runs/
+ml/street/weights/
+cache/
+
+# qa candidate dumps (regenerable via osm_metrics --dump-new-edges)
+ml/aerial/qa/*_all.geojson

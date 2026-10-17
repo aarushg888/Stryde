@@ -1,0 +1,47 @@
+{
+  "generated_utc": "2026-10-17T02:40:47+00:00",
+  "region": "arlington-va",
+  "demo_bbox": [
+    38.891575,
+    -77.101031,
+    38.882575,
+    -77.089468
+  ],
+  "in_training_cities": false,
+  "training_cities": [
+    "Boston, MA",
+    "Cambridge, MA",
+    "DC",
+    "New York, NY"
+  ],
+  "osm_groups": {
+    "footway_sidewalk_tagged": {
+      "count": 328,
+      "length_m": 39161.9,
+      "recall_within_3m_share": 0.6108
+    },
+    "footway_untyped": {
+      "count": 0,
+      "length_m": 0.0,
+      "recall_within_3m_share": null
+    },
+    "footway_crossing": {
+      "count": 260,
+      "length_m": 4107.2,
+      "recall_within_3m_share": 0.7433
+    }
+  },
+  "roads_sidewalk_tagged": {
+    "count": 406,
+    "length_m": 39436.0,
+    "length_with_t2n_sidewalk_within_15m_m": 27562.6,
+    "sidewalk_recall_share": 0.6989
+  },
+  "candidate_new_edges_CANDIDATE_ONLY": {
+    "definition": "tile2net sidewalk/crosswalk/connector length with no OSM sidewalk-or-footway within 5 m; includes false positives (gutters, parking aisles, private drives) and must be human/QA verified before router use",
+    "length_m": 6651.3,
+    "share_of_tile2net": 0.2001,
+    "tile2net_total_length_m": 33233.3
+  },
+  "caveat": "OpenStreetMap sidewalk data is incomplete and not ground truth; these are proxy metrics, not accuracy. Tile2Net did not train on this region unless in_training_cities is true. candidate_new_edges is CANDIDATE-ONLY (unverified)."
+}
