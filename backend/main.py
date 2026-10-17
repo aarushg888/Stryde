@@ -72,19 +72,23 @@ def generate_a_star(state, explored, graph):
    cost = 0
    parent = state
    current = explored[parent][0]
-   accessibility_cost = 0
    while current != "s":
       node_ll = latlngs.get(parent)
-      type = graph[2][(current,parent)]
-      if (type == "crossing" or type == "crosswalk") and node_ll:
-        c = get_incident_score(node_ll)
-        if c > 0:
-            print("accessibiilty > 0 somehow: ", c, node_ll)
+      cost += get_accessibility_costs(current, parent, node_ll, graph)      
       cost += graph[1][(current,parent)]
       path.append(current)
       parent = current
       current = explored[parent][0]
-   return path[::-1], cost
+   return path[::-1], cost 
+
+def get_accessibility_costs(s,a,node_ll, graph):
+    type = graph[2][(s,a)]
+    accessibility_cost = 0
+    if (type == "crossing" or type == "crosswalk") and node_ll:
+        accessibility_cost += 2+4*graph[1][(s,a)] + get_incident_score(node_ll)
+    if type == "unknown":
+        accessibility_cost += 300 + get_incident_score(node_ll)
+    return accessibility_cost
 def a_star(start, goal, graph, heuristic=heuristic):
    if start not in graph[0]:
       raise HTTPException(status_code=404, detail=f"Node '{start}' not in graph")
@@ -101,16 +105,11 @@ def a_star(start, goal, graph, heuristic=heuristic):
          continue
       if s == goal:
          print("Goal PC: ", pc)
-         path, cost = generate_a_star(s, explored, graph)
-         return path, cost
+         path, total_cost = generate_a_star(s, explored, graph)
+         return path, total_cost
       for a in graph[0][s]:  #graph[3] is neighbors
-        type = graph[2][(s,a)]
         node_ll = latlngs.get(a)
-        accessibility_cost = 0
-        if (type == "crossing" or type == "crosswalk") and node_ll:
-            accessibility_cost += 2+4*graph[1][(s,a)] + get_incident_score(node_ll)
-        if type == "unknown":
-            accessibility_cost += 300 + get_incident_score(node_ll)
+        accessibility_cost = get_accessibility_costs(s,a,node_ll,graph)
         new_pc = pc + graph[1][(s,a)] + accessibility_cost
         new_tc = new_pc + heuristic(node_ll,goal_ll)
         if a not in explored or new_tc < explored[a][1]:
@@ -249,7 +248,6 @@ def search(start: str = Query(...), goal: str = Query(...)):
     straight_m = None
     if s_point and g_point:
         straight_m = round(_haversine(s_point, g_point), 1)
-    print("Cost: ", cost)
     return {
         "start": start, "goal": goal,
         "start_node": s_used["node"], "goal_node": g_used["node"],
