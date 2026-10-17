@@ -69,6 +69,7 @@ def build(gdf: gpd.GeoDataFrame, tolerance: float):
     # node coordinate (lat, lng) per union-find root (EPSG:4326)
     import collections
     root_pts = collections.defaultdict(list)
+    kinds = metric["kind"].tolist()
     for i in range(len(pts)):
         root_pts[find(i)].append(pts[i])
     roots = sorted(root_pts)
@@ -81,21 +82,26 @@ def build(gdf: gpd.GeoDataFrame, tolerance: float):
     adjacency = {}
     tubes = {}
     loops = 0
+    tube_kind = {}
     for line_idx, geom in enumerate(lines):
         a = f"n{find(2 * line_idx)}"
         b = f"n{find(2 * line_idx + 1)}"
         w = float(geom.length)
+        k = kinds[line_idx]
         if a == b:
             loops += 1
             adjacency.setdefault(a, set())
             continue
-        key = (a, b) if a < b else (b, a)
-        if key not in tubes or w < tubes[key]:
-            tubes[key] = round(w, 2)
+        if (a,b) not in tubes or w < tubes[(a,b)]:
+            tubes[(a,b)] = round(w, 2)
+            tube_kind[(a,b)] = k
+        if (b,a) not in tubes or w < tubes[(b,a)]:
+            tubes[(b,a)] = round(w, 2)
+            tube_kind[(b,a)] = k
         adjacency.setdefault(a, set()).add(b)
         adjacency.setdefault(b, set()).add(a)
 
-    return epsg, adjacency, tubes, loops, latlngs
+    return epsg, adjacency, tubes, tube_kind, loops, latlngs
 
 
 def main():
@@ -107,7 +113,7 @@ def main():
     args = ap.parse_args()
 
     gdf = gpd.read_file(args.inferred)
-    epsg, adjacency, tubes, loops, latlngs = build(gdf, args.tolerance)
+    epsg, adjacency, tubes, tube_kind, loops, latlngs = build(gdf, args.tolerance)
 
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -115,6 +121,8 @@ def main():
         json.dump({n: sorted(v) for n, v in adjacency.items()}, f, indent=1)
     with open(out / "tubes.json", "w") as f:
         json.dump([[a, b, w] for (a, b), w in sorted(tubes.items())], f, indent=1)
+    with open(out / "tube_kind.json", "w") as f:
+            json.dump([[a, b, k] for (a, b), k in sorted(tube_kind.items())], f, indent=1)
     (out / "meta.json").write_text(json.dumps(
         {"epsg": epsg, "nodes": len(adjacency), "tubes": len(tubes),
          "weight": "length in meters (projected EPSG:%d)" % epsg,

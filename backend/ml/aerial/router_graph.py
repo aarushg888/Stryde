@@ -7,7 +7,6 @@
 import json
 import pathlib
 
-
 def load(out_dir):
     out_dir = pathlib.Path(out_dir)
     adj = {}
@@ -16,5 +15,8 @@ def load(out_dir):
     tubes = {}
     for a, b, w in json.load(open(out_dir / "tubes.json")):
         tubes[(a, b)] = float(w)
+    tube_kind = {}
+    for a, b, w in json.load(open(out_dir / "tube_kind.json")):
+        tube_kind[(a, b)] = float(w)
     meta = json.load(open(out_dir / "meta.json"))
-    return [adj, tubes], meta
+    return [adj, tubes, tube_kind], meta
