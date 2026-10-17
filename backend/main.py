@@ -94,9 +94,9 @@ def a_star(start, goal, graph, heuristic=heuristic):
    goal_ll = latlngs.get(goal)
    h_start = heuristic(start_ll,goal_ll)
    frontier, explored = [], {start: ("s",h_start)} # heuristic is total cost
-   heapq.heappush(frontier,(h_start,0,None,start)) # total cost, cost to reach, state
+   heapq.heappush(frontier,(h_start,0,start)) # total cost, cost to reach, state
    while len(frontier) > 0:
-      tc,pc,type,s = heapq.heappop(frontier)
+      tc,pc,s = heapq.heappop(frontier)
       if tc > explored[s][1]:
          continue
       if s == goal:
@@ -104,18 +104,18 @@ def a_star(start, goal, graph, heuristic=heuristic):
          path, cost = generate_a_star(s, explored, graph)
          return path, cost
       for a in graph[0][s]:  #graph[3] is neighbors
+        type = graph[2][(s,a)]
         node_ll = latlngs.get(a)
         accessibility_cost = 0
         if (type == "crossing" or type == "crosswalk") and node_ll:
-            accessibility_cost += 3*graph[1][(s,a)] + get_incident_score(node_ll)
+            accessibility_cost += 2+4*graph[1][(s,a)] + get_incident_score(node_ll)
         if type == "unknown":
-            accessibility_cost += 10
+            accessibility_cost += 300 + get_incident_score(node_ll)
         new_pc = pc + graph[1][(s,a)] + accessibility_cost
         new_tc = new_pc + heuristic(node_ll,goal_ll)
         if a not in explored or new_tc < explored[a][1]:
-            new_type = graph[2][(s,a)]
             explored[a] = (s,new_tc)
-            heapq.heappush(frontier,(new_tc,new_pc,new_type,a))
+            heapq.heappush(frontier,(new_tc,new_pc,a))
    return None
 
 
@@ -300,9 +300,9 @@ def get_incident_score(ll, k=20):
     if not idx:
         return 0
     nearby = incident_df.iloc[idx]     
-    val = (nearby['TOTAL_VEHICLES'].sum() * 20
-            + nearby['TOTAL_BICYCLES'].sum() * 400
-            + nearby['TOTAL_PEDESTRIANS'].sum() * 1000
+    val = (nearby['TOTAL_VEHICLES'].sum() * 40
+            + nearby['TOTAL_BICYCLES'].sum() * 800
+            + nearby['TOTAL_PEDESTRIANS'].sum() * 2000
             + nearby['FATAL_PEDESTRIAN'].sum() * 10**6)
     return val
 
