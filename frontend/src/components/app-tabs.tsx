@@ -13,7 +13,7 @@ export default function AppTabs() {
         tabBarActiveTintColor: colors.text,
         tabBarInactiveTintColor: colors.backgroundElement,
         tabBarStyle: {
-          backgroundColor: "#4A90D9",
+          backgroundColor: "#303edf",
           borderTopWidth: 0, // Keeps bottom menu transition flat and clean
         },
       }}

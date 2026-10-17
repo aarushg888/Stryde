@@ -35,6 +35,30 @@ const DEMO_GOAL = "38.9184,-77.0248";
 
 const WALK_SPEED_KMH = 4.5;
 
+function parseLatLng(
+  value: string,
+): { latitude: number; longitude: number } | null {
+  const parts = value.split(",").map((part) => part.trim());
+
+  if (parts.length !== 2) return null;
+
+  const latitude = Number(parts[0]);
+  const longitude = Number(parts[1]);
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null;
+  }
+
+  return { latitude, longitude };
+}
+
 export default function HomeScreen() {
   const scheme = useColorScheme();
   const colors = Colors[scheme === "dark" ? "dark" : "light"];
@@ -49,7 +73,11 @@ export default function HomeScreen() {
   const [svcState, setSvcState] = useState<
     "checking" | "online" | "warming" | "offline"
   >("checking");
+  const [plannerExpanded, setPlannerExpanded] = useState(false);
   const mapRef = React.useRef<MapView>(null);
+  const [mapPickMode, setMapPickMode] = useState<
+    "start" | "destination" | null
+  >(null);
 
   // Backend visibility pill: tells users whether the API is reachable before they type.
   useEffect(() => {
@@ -63,6 +91,14 @@ export default function HomeScreen() {
         if (alive) setSvcState("offline");
       }
     };
+
+    const collapsePlanner = () => {
+      if (!startLocation.trim() && !destination.trim()) {
+        setPlannerExpanded(false);
+        Keyboard.dismiss();
+      }
+    };
+
     void poll();
     const id = setInterval(poll, 30000);
     return () => {
@@ -84,16 +120,23 @@ export default function HomeScreen() {
     };
   }, []);
 
+  const clearRoute = () => {
+    setRoute(null);
+    setRouteStatus(null);
+    setRouteError(null);
+  };
+
   const loadDemo = () => {
+    setPlannerExpanded(true);
     setStartLocation(DEMO_START);
     setDestination(DEMO_GOAL);
+    clearRoute();
   };
 
   const swapEnds = () => {
     setStartLocation(destination);
     setDestination(startLocation);
-    setRoute(null);
-    setRouteError(null);
+    clearRoute();
   };
 
   const handleFindRoute = async () => {
@@ -143,6 +186,9 @@ export default function HomeScreen() {
     }
   };
 
+  const startCoordinate = parseLatLng(startLocation);
+  const destinationCoordinate = parseLatLng(destination);
+
   const routeCoords = route?.geometry?.length
     ? route.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng }))
     : [];
@@ -157,6 +203,22 @@ export default function HomeScreen() {
           showsUserLocation={false}
           showsMyLocationButton={false}
           toolbarEnabled={false}
+          onPress={({ nativeEvent }) => {
+            if (!mapPickMode) return;
+
+            const { latitude, longitude } = nativeEvent.coordinate;
+            const coordinates = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+
+            if (mapPickMode === "destination") {
+              setDestination(coordinates);
+            } else {
+              setStartLocation(coordinates);
+            }
+
+            clearRoute();
+            setPlannerExpanded(true);
+            setMapPickMode(null);
+          }}
         >
           {route && routeCoords.length > 1 && (
             <>
@@ -188,8 +250,27 @@ export default function HomeScreen() {
               />
             </>
           )}
+          {!route && destinationCoordinate && (
+            <Marker
+              coordinate={destinationCoordinate}
+              title="Destination"
+              pinColor="#e74c3c"
+            />
+          )}
+
+          {!route && startCoordinate && (
+            <Marker
+              coordinate={startCoordinate}
+              title="Start"
+              pinColor="#2ecc71"
+            />
+          )}
         </MapView>
       </View>
+
+      {plannerExpanded && !route && !mapPickMode && (
+        <View pointerEvents="none" style={styles.mapDimOverlay} />
+      )}
 
       <View style={styles.foregroundContainer} pointerEvents="box-none">
         <KeyboardAvoidingView
@@ -214,6 +295,20 @@ export default function HomeScreen() {
             >
               <View style={styles.plannerCard} pointerEvents="auto">
                 <View style={styles.plannerHeaderRow}>
+                  {plannerExpanded && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (!startLocation.trim() && !destination.trim()) {
+                          setPlannerExpanded(false);
+                          Keyboard.dismiss();
+                        }
+                      }}
+                      accessibilityLabel="Collapse route planner"
+                      style={{ padding: 8 }}
+                    >
+                      <MaterialIcons name="close" size={20} color="#64748b" />
+                    </TouchableOpacity>
+                  )}
                   <ThemedText
                     type="small"
                     themeColor="textSecondary"
@@ -230,7 +325,7 @@ export default function HomeScreen() {
                           backgroundColor: "rgba(231,76,60,0.12)",
                         },
                         svcState === "warming" && {
-                          backgroundColor: "rgba(241,196,15,0.15)",
+                          backgroundColor: "rgba(15, 241, 83, 0.15)",
                         },
                       ]}
                     >
@@ -241,7 +336,7 @@ export default function HomeScreen() {
                             backgroundColor: "#e74c3c",
                           },
                           svcState === "warming" && {
-                            backgroundColor: "#f1c40f",
+                            backgroundColor: "#2e9716",
                           },
                           svcState === "checking" && {
                             backgroundColor: "#888",
@@ -252,7 +347,7 @@ export default function HomeScreen() {
                         style={[
                           styles.svcPillText,
                           svcState === "offline" && { color: "#e74c3c" },
-                          svcState === "warming" && { color: "#b7950b" },
+                          svcState === "warming" && { color: "#2e9716" },
                         ]}
                       >
                         {svcState === "warming"
@@ -275,63 +370,116 @@ export default function HomeScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Start point */}
-                <View style={styles.fieldRow}>
-                  <View
-                    style={[
-                      styles.iconBadge,
-                      { backgroundColor: "rgba(46, 204, 113, 0.12)" },
-                    ]}
-                  >
-                    <MaterialIcons
-                      name="my-location"
-                      size={16}
-                      color="#2ecc71"
-                    />
-                  </View>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      {
-                        color: "#000000",
-                        borderColor: colors.backgroundElement,
-                      },
-                    ]}
-                    placeholder="Starting point (GPS, node id, or lat,lng)"
-                    placeholderTextColor="#888"
-                    value={startLocation}
-                    onChangeText={setStartLocation}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="ascii-capable"
-                    returnKeyType="next"
-                    submitBehavior="blurAndSubmit"
-                    accessibilityLabel="Starting point"
-                    accessibilityHint="Type a graph node id or latitude,longitude pair"
-                    enterKeyHint="next"
-                  />
-                  {startLocation.length > 0 && (
+                {plannerExpanded && (
+                  <View style={styles.mapPickRow}>
                     <TouchableOpacity
-                      style={styles.clearButton}
-                      onPress={() => setStartLocation("")}
-                      accessibilityRole="button"
-                      accessibilityLabel="Clear starting point"
+                      style={[
+                        styles.mapPickButton,
+                        mapPickMode === "destination" &&
+                          styles.mapPickButtonActive,
+                      ]}
+                      onPress={() => setMapPickMode("destination")}
                     >
-                      <MaterialIcons name="close" size={16} color="#888" />
+                      <MaterialIcons name="place" size={17} color="#e74c3c" />
+                      <ThemedText style={styles.mapPickButtonText}>
+                        {mapPickMode === "destination"
+                          ? "Tap map to place red pin"
+                          : "Pick destination"}
+                      </ThemedText>
                     </TouchableOpacity>
-                  )}
-                </View>
 
-                {/* Ends swap control */}
-                <TouchableOpacity
-                  style={styles.swapButton}
-                  onPress={swapEnds}
-                  accessibilityRole="button"
-                  accessibilityLabel="Swap starting point and destination"
-                  activeOpacity={0.7}
-                >
-                  <MaterialIcons name="swap-vert" size={18} color="#3498db" />
-                </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.mapPickButton,
+                        mapPickMode === "start" && styles.mapPickButtonActive,
+                      ]}
+                      onPress={() => setMapPickMode("start")}
+                    >
+                      <MaterialIcons
+                        name="my-location"
+                        size={17}
+                        color="#2ecc71"
+                      />
+                      <ThemedText style={styles.mapPickButtonText}>
+                        {mapPickMode === "start"
+                          ? "Tap map to place green pin"
+                          : "Pick starting point"}
+                      </ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Start point */}
+                {plannerExpanded && (
+                  <>
+                    <View style={styles.fieldRow}>
+                      <View
+                        style={[
+                          styles.iconBadge,
+                          { backgroundColor: "rgba(46, 204, 113, 0.12)" },
+                        ]}
+                      >
+                        <MaterialIcons
+                          name="my-location"
+                          size={16}
+                          color="#2ecc71"
+                        />
+                      </View>
+                      <TextInput
+                        style={[
+                          styles.input,
+                          {
+                            color: "#000000",
+                            borderColor: colors.backgroundElement,
+                          },
+                        ]}
+                        placeholder="Starting point (GPS, node id, or lat,lng)"
+                        placeholderTextColor="#888"
+                        value={startLocation}
+                        onChangeText={(text) => {
+                          setStartLocation(text);
+                          clearRoute();
+                        }}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="ascii-capable"
+                        returnKeyType="next"
+                        submitBehavior="blurAndSubmit"
+                        accessibilityLabel="Starting point"
+                        accessibilityHint="Type a graph node id or latitude,longitude pair"
+                        enterKeyHint="next"
+                      />
+                      {startLocation.length > 0 && (
+                        <TouchableOpacity
+                          style={styles.clearButton}
+                          onPress={() => {
+                            setStartLocation("");
+                            clearRoute();
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel="Clear starting point"
+                        >
+                          <MaterialIcons name="close" size={16} color="#888" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {/* Ends swap control */}
+                    <TouchableOpacity
+                      style={styles.swapButton}
+                      onPress={swapEnds}
+                      accessibilityRole="button"
+                      accessibilityLabel="Swap starting point and destination"
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons
+                        name="swap-vert"
+                        size={18}
+                        color="#3498db"
+                      />
+                    </TouchableOpacity>
+                  </>
+                )}
 
                 {/* Destination */}
                 <View style={styles.fieldRow}>
@@ -346,15 +494,20 @@ export default function HomeScreen() {
                   <TextInput
                     style={[
                       styles.input,
+
                       {
                         color: "#000000",
                         borderColor: colors.backgroundElement,
                       },
                     ]}
+                    onFocus={() => setPlannerExpanded(true)}
                     placeholder="Destination (node id, or lat,lng)"
                     placeholderTextColor="#888"
                     value={destination}
-                    onChangeText={setDestination}
+                    onChangeText={(text) => {
+                      setDestination(text);
+                      clearRoute();
+                    }}
                     autoCapitalize="none"
                     autoCorrect={false}
                     keyboardType="ascii-capable"
@@ -368,7 +521,10 @@ export default function HomeScreen() {
                   {destination.length > 0 && (
                     <TouchableOpacity
                       style={styles.clearButton}
-                      onPress={() => setDestination("")}
+                      onPress={() => {
+                        setDestination("");
+                        clearRoute();
+                      }}
                       accessibilityRole="button"
                       accessibilityLabel="Clear destination"
                     >
@@ -378,23 +534,25 @@ export default function HomeScreen() {
                 </View>
 
                 {/* Find route CTA */}
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={handleFindRoute}
-                  disabled={finding}
-                  activeOpacity={0.85}
-                  accessibilityRole="button"
-                  accessibilityLabel="Find the safest pedestrian route"
-                >
-                  <MaterialIcons
-                    name="verified-user"
-                    size={18}
-                    color="#ffffff"
-                  />
-                  <ThemedText style={styles.actionButtonText}>
-                    {finding ? "Routing…" : "Find safer route"}
-                  </ThemedText>
-                </TouchableOpacity>
+                {plannerExpanded && (
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={handleFindRoute}
+                    disabled={finding}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Find the safest pedestrian route"
+                  >
+                    <MaterialIcons
+                      name="verified-user"
+                      size={18}
+                      color="#ffffff"
+                    />
+                    <ThemedText style={styles.actionButtonText}>
+                      {finding ? "Routing…" : "Find safer route"}
+                    </ThemedText>
+                  </TouchableOpacity>
+                )}
               </View>
 
               {/* Result / error banner */}
@@ -533,7 +691,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: "rgba(149,165,166,0.15)",
     top: -15,
-    left: 100,
+    left: 110,
   },
   svcDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#2ecc71" },
   svcPillText: { fontSize: 11 },
@@ -546,7 +704,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     minHeight: 36,
     justifyContent: "center",
-    top: 225,
+    top: -9,
+    left: -70,
   },
   textChipText: {
     fontSize: 12,
@@ -673,5 +832,40 @@ const styles = StyleSheet.create({
     opacity: 0.65,
     paddingBottom: BottomTabInset + Spacing.three,
     paddingHorizontal: Spacing.two,
+  },
+  mapDimOverlay: {
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    position: "absolute",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    zIndex: 0,
+  },
+  mapPickRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  mapPickButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 10,
+    backgroundColor: "#ffffff",
+  },
+  mapPickButtonActive: {
+    borderColor: "#3498db",
+    backgroundColor: "#eff6ff",
+  },
+  mapPickButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#334155",
   },
 });
