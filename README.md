@@ -16,7 +16,8 @@ One backend serves both; one Expo app (React Native) consumes it.
 ### 1. Backend (FastAPI, one process)
 
 ```bash
-backend/tile2net/.venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8100
+./scripts/run_backend.sh                     # FastAPI on :8100 (replaces the line below)
+# backend/tile2net/.venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8100
 # health:      curl http://localhost:8100/health
 # route:       curl "http://localhost:8100/search?start=n0&goal=n100"
 #              (start/goal accept graph node ids OR "lat,lng")
@@ -25,9 +26,18 @@ backend/tile2net/.venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --p
 ```
 
 `/search` runs A* over the real router graph (3 535 nodes / 3 401 tubes built
-from aerial inference) and returns node ids, cost in meters and a
-`geometry` lat/lng polyline for the map. `/detect` 503s with a clear message
-until the detector weights finish training (section 3).
+from aerial inference) and returns node ids, cost in meters, a
+`geometry` lat/lng polyline, snap distances and — for "lat,lng" inputs —
+`straight_m` (crow-flies) and `ratio` (route ÷ straight line). Nearest nodes
+on both ends are tried in pairs until a connected route exists, and the
+polyline starts/ends at the exact coordinates you entered. `/detect` 503s
+with a clear message until the detector weights finish training (section 3).
+
+Smoke tests (zero dependencies, spawns its own uvicorn on :8199):
+
+```bash
+backend/tile2net/.venv/bin/python backend/tests/test_api.py   # 13 checks
+```
 
 ### 2. Frontend (Expo app)
 

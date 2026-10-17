@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Alert, useColorScheme } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,6 +22,22 @@ export default function HazardsScreen() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [detections, setDetections] = useState<Detection[] | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [svcState, setSvcState] = useState<'checking' | 'online' | 'warming' | 'offline'>('checking');
+
+  // Detector health chip so users know whether photo analysis will work.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const h = await api.health();
+        if (!alive) return;
+        setSvcState(h.ok ? (h.weights ? 'online' : 'warming') : 'offline');
+      } catch {
+        if (alive) setSvcState('offline');
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const handleAttachPhoto = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -112,6 +128,32 @@ export default function HazardsScreen() {
           <View style={styles.header}>
             <ThemedText type="title" style={styles.title}>Report a Hazard</ThemedText>
             <ThemedText style={styles.subtitle}>Help your fellow pedestrians by logging street blocks or obstacles.</ThemedText>
+            <View style={[
+              styles.svcPill,
+              svcState === 'offline' && { backgroundColor: 'rgba(231,76,60,0.12)' },
+              svcState === 'warming' && { backgroundColor: 'rgba(241,196,15,0.15)' },
+              svcState === 'online' && { backgroundColor: 'rgba(46,204,113,0.12)' },
+            ]}>
+              <View style={[
+                styles.svcDot,
+                svcState === 'offline' && { backgroundColor: '#e74c3c' },
+                svcState === 'warming' && { backgroundColor: '#f1c40f' },
+                svcState === 'online' && { backgroundColor: '#2ecc71' },
+              ]} />
+              <ThemedText
+                style={[
+                  styles.svcPillText,
+                  svcState === 'offline' && { color: '#e74c3c' },
+                  svcState === 'warming' && { color: '#b7950b' },
+                  svcState === 'online' && { color: '#27ae60' },
+                ]}
+              >
+                {svcState === 'online' ? 'Detector online'
+                  : svcState === 'warming' ? 'Detector warming up (model still training)'
+                  : svcState === 'offline' ? 'Backend offline — photo analysis unavailable'
+                  : 'Checking detector…'}
+              </ThemedText>
+            </View>
           </View>
 
           {/* Section 1: Type Selection Matrix */}
@@ -210,6 +252,19 @@ export default function HazardsScreen() {
 }
 
 const styles = StyleSheet.create({
+  svcPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(149,165,166,0.15)',
+    marginTop: Spacing.two,
+  },
+  svcDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2ecc71' },
+  svcPillText: { fontSize: 12 },
   container: {
     flex: 1,
   },
