@@ -30,20 +30,20 @@ cost_specs = [
     {   
         "crossing_base":2,
         "crossing_length":3,
-        "unknown": 200,
-        "vehicle": 25,
-        "bicycle": 450,
-        "pedestrians":1500,
-        "fatal_pedestrian": 10**5
+        "unknown": 150,
+        "vehicle": 20,
+        "bicycle": 400,
+        "pedestrians":1200,
+        "fatal_pedestrian": 10**4
     },
     {
-        "crossing_base":2,
-        "crossing_length":3,
-        "unknown": 100,
+        "crossing_base":1,
+        "crossing_length":2,
+        "unknown": 75,
         "vehicle": 10,
-        "bicycle": 200,
-        "pedestrians":800,
-        "fatal_pedestrian": 10**4
+        "bicycle": 100,
+        "pedestrians":600,
+        "fatal_pedestrian": 10**2
     },
     {
         "crossing_base": 0,
@@ -123,7 +123,6 @@ def a_star(start, goal, graph,cost_spec, heuristic=heuristic):
       if tc > explored[s][1]:
          continue
       if s == goal:
-         print("Goal PC: ", pc)
          path, cost, ac = generate_a_star(s, explored, graph, cost_spec)
          return path, cost, ac
       for a in graph[0][s]:  #graph[3] is neighbors
