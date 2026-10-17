@@ -1,0 +1,18 @@
+{
+    "config": "/Users/zohranvalliani/Documents/congressional-app/backend/tile2net/src/tile2net/tileseg/config.py",
+    "assets": {
+        "weights": {
+            "satellite_2021": "/Users/zohranvalliani/Library/Caches/tile2net/weights/satellite_2021.pth",
+            "hrnetv2_w48_imagenet_pretrained": "/Users/zohranvalliani/Library/Caches/tile2net/weights/hrnetv2_w48_imagenet_pretrained.pth"
+        }
+    },
+    "segmentation": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/boston_common/segmentation/boston_common/256_19_4",
+    "tiles": {
+        "info": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/boston_common/tiles/boston_common_256_info.json",
+        "static": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/boston_common/tiles/static/ma/256_19",
+        "stitched": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/boston_common/tiles/stitched/256_19_4"
+    },
+    "polygons": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/boston_common/polygons",
+    "network": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/boston_common/network",
+    "name": "boston_common"
+}

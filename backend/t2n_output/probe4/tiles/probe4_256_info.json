@@ -1,0 +1,43 @@
+{
+    "name": "probe4",
+    "bbox": [
+        42.3483952598,
+        42.3565143171,
+        -71.0733032227,
+        -71.0623168945
+    ],
+    "location": [
+        42.35,
+        -71.073,
+        42.3565,
+        -71.063
+    ],
+    "size": 1024,
+    "zoom": 19,
+    "crs": 4326,
+    "tile_step": 4,
+    "padding": true,
+    "project": {
+        "config": "/Users/zohranvalliani/Documents/congressional-app/backend/tile2net/src/tile2net/tileseg/config.py",
+        "assets": {
+            "weights": {
+                "satellite_2021": "/Users/zohranvalliani/Library/Caches/tile2net/weights/satellite_2021.pth",
+                "hrnetv2_w48_imagenet_pretrained": "/Users/zohranvalliani/Library/Caches/tile2net/weights/hrnetv2_w48_imagenet_pretrained.pth"
+            }
+        },
+        "segmentation": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/probe4/segmentation/probe4/256_19_4",
+        "tiles": {
+            "info": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/probe4/tiles/probe4_256_info.json",
+            "static": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/probe4/tiles/static/ma/256_19",
+            "stitched": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/probe4/tiles/stitched/256_19_4"
+        },
+        "polygons": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/probe4/polygons",
+        "network": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output/probe4/network",
+        "name": "probe4"
+    },
+    "debug": false,
+    "output_dir": "/Users/zohranvalliani/Documents/congressional-app/backend/t2n_output",
+    "source": "ma",
+    "year": 2021,
+    "server": "https://tiles.arcgis.com/tiles/hGdibHYSPO59RG1h/arcgis/rest/services/orthos2021/MapServer"
+}
