@@ -20,10 +20,7 @@ import {
   useColorScheme,
   View,
 } from "react-native";
-import MapView, {
-  Marker,
-  Polyline
-} from "react-native-maps";
+import MapView, { Marker, Polyline } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // MVP coverage area kept in sync with the backend's built graph (Logan Circle).

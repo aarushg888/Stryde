@@ -341,7 +341,7 @@ export default function PreferencesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    // backgroundColor: "#F8FAFC",
   },
   safeArea: {
     flex: 1,
