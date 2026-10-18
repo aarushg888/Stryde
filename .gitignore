@@ -2,7 +2,7 @@
 node_modules
 .expo/
 .idea/
-
+frontend/.env
 # local virtualenvs
 **/.venv/
 

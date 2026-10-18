@@ -25,19 +25,19 @@ cost_specs = [
     {
         "crossing_base":1,
         "crossing_length":2,
-        "unknown": 10,
-        "vehicle": 25,
-        "bicycle": 800,
-        "pedestrians":2000,
+        "unknown": 3,
+        "vehicle": 6,
+        "bicycle": 80,
+        "pedestrians":500,
         "fatal_pedestrian": 10**6
     },
     {   
-        "crossing_base":1,
-        "crossing_length":2,
-        "unknown": 5,
-        "vehicle": 10,
-        "bicycle": 400,
-        "pedestrians":1200,
+        "crossing_base":0,
+        "crossing_length":1,
+        "unknown": 2,
+        "vehicle": 3,
+        "bicycle": 50,
+        "pedestrians":100,
         "fatal_pedestrian": 10**4
     },
     {
@@ -279,8 +279,8 @@ async def search(start: str = Query(...), goal: str = Query(...)):
     final_paths = await asyncio.gather(*tasks)
     if any(r is None for r in final_paths):
         raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
-    return final_paths[0]
-    # return {"paths": final_paths}
+    # return final_paths[0]
+    return {"paths": final_paths}
 
 
 
