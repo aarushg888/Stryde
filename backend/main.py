@@ -23,31 +23,22 @@ HAZARDS_DB = REPO / "data" / "user_hazards.csv"
 USER_PREFS = REPO / "data" / "user_prefs.json"
 cost_specs = [
     {
-        "crossing_base":2,
-        "crossing_length":4,
-        "unknown": 300,
-        "vehicle": 40,
+        "crossing_base":1,
+        "crossing_length":2,
+        "unknown": 10,
+        "vehicle": 25,
         "bicycle": 800,
         "pedestrians":2000,
         "fatal_pedestrian": 10**6
     },
     {   
-        "crossing_base":2,
-        "crossing_length":3,
-        "unknown": 150,
-        "vehicle": 20,
+        "crossing_base":1,
+        "crossing_length":2,
+        "unknown": 5,
+        "vehicle": 10,
         "bicycle": 400,
         "pedestrians":1200,
         "fatal_pedestrian": 10**4
-    },
-    {
-        "crossing_base":1,
-        "crossing_length":2,
-        "unknown": 75,
-        "vehicle": 10,
-        "bicycle": 100,
-        "pedestrians":600,
-        "fatal_pedestrian": 10**2
     },
     {
         "crossing_base": 0,
@@ -76,13 +67,6 @@ def _load_graph_osm():
 
     return [adjacencies, tubes, tube_kind],node_latlng
         
-def _load_graph_ml():
-    """[(adjacency, tube_weights), meta] from the router handoff, else toy graph."""
-    data = REPO / "data" / "router_graph"
-    from backend.ml.aerial.router_graph import load
-    graphs, meta = load(str(data))
-    return graphs, meta.get("node_latlng") or {}
-# GRAPH, latlngs = _load_graph_ml()
 GRAPH, latlngs = _load_graph_osm()
 
     
