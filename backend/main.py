@@ -1,14 +1,11 @@
-"""Stryde MVP API — routing + accessibility layers in one service."""
 import heapq
 import json
 import math
 import pathlib
 import time
-import csv
-import os
-import asyncio
 import concurrent.futures
-
+import asyncio
+import csv
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import UnidentifiedImageError
@@ -18,54 +15,198 @@ import pandas as pd
 from scipy.spatial import KDTree
 import numpy as np
 import pickle
-
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-REPO = ROOT
+REPO = ROOT  # backend/.. == repo root
 
 # --- Constants & Database Paths ---
 HAZARDS_DB = REPO / "data" / "user_hazards.csv"
 USER_PREFS = REPO / "data" / "user_prefs.json"
-_COVERAGE = {
-    "demo": "data/demo_area_inferred.geojson",
-    "test": "data/test_area_inferred.geojson",
-    "nova": "data/nova_area_inferred.geojson",
-}
-
-def _init_db():
-    if not HAZARDS_DB.exists():
-        HAZARDS_DB.parent.mkdir(parents=True, exist_ok=True)
-        with open(HAZARDS_DB, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['timestamp', 'type', 'lat', 'lng', 'description', 'photo_path'])
-    if not USER_PREFS.exists():
-        USER_PREFS.parent.mkdir(parents=True, exist_ok=True)
-        with open(USER_PREFS, 'w') as f:
-            json.dump({
-                "routingMode": "standard",
-                "preferSidewalks": True,
-                "wellLitOnly": False,
-                "lowTraffic": False,
-                "avoidObstacles": True
-            }, f)
-
-_init_db()
-
+cost_specs = [
+    {
+        "crossing_base":2,
+        "crossing_length":4,
+        "unknown": 300,
+        "vehicle": 40,
+        "bicycle": 800,
+        "pedestrians":2000,
+        "fatal_pedestrian": 10**6
+    },
+    {   
+        "crossing_base":2,
+        "crossing_length":3,
+        "unknown": 150,
+        "vehicle": 20,
+        "bicycle": 400,
+        "pedestrians":1200,
+        "fatal_pedestrian": 10**4
+    },
+    {
+        "crossing_base":1,
+        "crossing_length":2,
+        "unknown": 75,
+        "vehicle": 10,
+        "bicycle": 100,
+        "pedestrians":600,
+        "fatal_pedestrian": 10**2
+    },
+    {
+        "crossing_base": 0,
+        "crossing_length":0,
+        "unknown": 0,
+        "vehicle": 0,
+        "bicycle": 0,
+        "pedestrians":0,
+        "fatal_pedestrian": 0
+    },
+]
 def _load_graph_osm():
     data = REPO / "data" / "osm" / "pickle"
-    try:
-        with open(data / "node_latlng.pkl", 'rb') as file:
-            node_latlng = pickle.load(file)
-        with open(data / "adjacencies.pkl", 'rb') as file:
-            adjacencies = pickle.load(file)
-        with open(data / "tube_kind.pkl", 'rb') as file:
-            tube_kind = pickle.load(file)
-        with open(data / "tubes.pkl", 'rb') as file:
-            tubes = pickle.load(file)
-        return [dict(adjacencies), dict(tubes), dict(tube_kind)], dict(node_latlng)
-    except FileNotFoundError:
-        return [{"n1": ["n2"], "n2": ["n1"]}, {"(n1,n2)": 10, "(n2,n1)": 10}, {"(n1,n2)": "sidewalk", "(n2,n1)": "sidewalk"}, {"n1": (38.9, -77.0), "n2": (38.9, -77.01)}]
+    with open(data / "node_latlng.pkl", 'rb') as file:
+        node_latlng = pickle.load(file)
+    with open(data / "adjacencies.pkl", 'rb') as file:
+        adjacencies = pickle.load(file)
+    with open(data / "tube_kind.pkl", 'rb') as file:
+        tube_kind = pickle.load(file)
+    with open(data / "tubes.pkl", 'rb') as file:
+        tubes = pickle.load(file)
+    node_latlng = dict(node_latlng)
+    adjacencies = dict(adjacencies)
+    tubes = dict(tubes)
+    tube_kind = dict(tube_kind)
 
+    return [adjacencies, tubes, tube_kind],node_latlng
+        
+def _load_graph_ml():
+    """[(adjacency, tube_weights), meta] from the router handoff, else toy graph."""
+    data = REPO / "data" / "router_graph"
+    from backend.ml.aerial.router_graph import load
+    graphs, meta = load(str(data))
+    return graphs, meta.get("node_latlng") or {}
+# GRAPH, latlngs = _load_graph_ml()
 GRAPH, latlngs = _load_graph_osm()
+
+    
+def heuristic(node_ll, goal_ll) -> float:
+    heuristic_cost = _haversine(node_ll,goal_ll)
+    return heuristic_cost
+def generate_a_star(state, explored, graph, cost_spec):
+   path = [state]
+   cost = 0
+   accessibility_cost = 0
+   parent = state
+   current = explored[parent][0]
+   while current != "s":
+      node_ll = latlngs.get(parent)
+      accessibility_cost += get_accessibility_costs(current, parent, node_ll, graph, cost_spec)      
+      cost += graph[1][(current,parent)]
+      path.append(current)
+      parent = current
+      current = explored[parent][0]
+   return path[::-1], cost, accessibility_cost
+
+def get_accessibility_costs(s,a,node_ll, graph, cost_spec):
+    type = graph[2][(s,a)]
+    accessibility_cost = 0
+    if (type == "crossing" or type == "crosswalk") and node_ll:
+        accessibility_cost += cost_spec["crossing_base"]+cost_spec["crossing_length"]*graph[1][(s,a)] + get_incident_score(node_ll,cost_spec)
+    if type == "unknown":
+        accessibility_cost += cost_spec["unknown"] + get_incident_score(node_ll, cost_spec)
+    return accessibility_cost
+def a_star(start, goal, graph,cost_spec, heuristic=heuristic):
+   if start not in graph[0]:
+      raise HTTPException(status_code=404, detail=f"Node '{start}' not in graph")
+   if goal not in graph[0]:
+      raise HTTPException(status_code=404, detail=f"Node '{goal}' not in graph")
+   start_ll = latlngs.get(start)
+   goal_ll = latlngs.get(goal)
+   h_start = heuristic(start_ll,goal_ll)
+   frontier, explored = [], {start: ("s",h_start)} # heuristic is total cost
+   heapq.heappush(frontier,(h_start,0,start)) # total cost, cost to reach, state
+   while len(frontier) > 0:
+      tc,pc,s = heapq.heappop(frontier)
+      if tc > explored[s][1]:
+         continue
+      if s == goal:
+         path, cost, ac = generate_a_star(s, explored, graph, cost_spec)
+         return path, cost, ac
+      for a in graph[0][s]:  #graph[3] is neighbors
+        node_ll = latlngs.get(a)
+        accessibility_cost = get_accessibility_costs(s,a,node_ll,graph,cost_spec)
+        new_pc = pc + graph[1][(s,a)] + accessibility_cost
+        new_tc = new_pc + heuristic(node_ll,goal_ll)
+        if a not in explored or new_tc < explored[a][1]:
+            explored[a] = (s,new_tc)
+            heapq.heappush(frontier,(new_tc,new_pc,a))
+   return None
+
+
+
+NO_DATA = """hazard detector is warming up — model weights are still training
+(run backend/ml/street/train_colab.ipynb, then drop best.pt into
+backend/ml/street/weights/)."""
+
+_MAX_UPLOAD = 10 * 1024 * 1024  # 10 MB (C1 contract)
+
+app = FastAPI(title="Stryde MVP API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def _nearest_nodes(lat, lng, k: int = 6):
+    """k nearest graph nodes to a lat,lng (haversine over node coords)."""
+    if not latlngs:
+        raise HTTPException(status_code=400, detail="graph has no coordinates; pass a node id")
+    scored = []
+    for n, (nlat, nlng) in latlngs.items():
+        dy = (nlat - lat) * 111_320.0
+        dx = (nlng - lng) * 111_320.0 * math.cos(math.radians(lat))
+        scored.append((dx * dx + dy * dy, n, nlat, nlng))
+    scored.sort(key=lambda t: t[0])
+    out = []
+    for d2, n, nlat, nlng in scored[:k]:
+        d = math.sqrt(d2)
+        if d <= 400:
+            out.append({"node": n, "dist_m": round(d, 1),
+                        "latlng": [round(nlat, 6), round(nlng, 6)]})
+    return out
+
+
+def _resolve_candidates(token: str):
+    """Node id -> one candidate; 'lat,lng' -> up to 6 nearest node candidates."""
+    t = token.strip()
+    if t in GRAPH[0]:
+        return [{"node": t, "dist_m": 0.0, "latlng": None}]
+    parts = t.split(",")
+    if len(parts) == 2:
+        try:
+            lat, lng = float(parts[0]), float(parts[1])
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"cannot parse '{t}' (node id or 'lat,lng')")
+        cands = _nearest_nodes(lat, lng)
+        if not cands:
+            raise HTTPException(status_code=404,
+                                detail=NO_GRAPH_NEARBY.format(lat=lat, lng=lng))
+        return cands
+    raise HTTPException(status_code=400, detail=f"unknown node '{t}' (use node id or 'lat,lng')")
+
+
+NO_GRAPH_NEARBY = (
+    "No sidewalk-graph node within 400 m of {lat},{lng} — is the backend serving "
+    "the same coverage area as the app? Check /health coverage and /coverage.")
+NO_PATH_NEARBY = (
+    "No walking connection between '{start}' and '{goal}': every attempt landed in "
+    "different connected sidewalk components (heal coverage or pick points closer "
+    "to a covered corridor).")
+
+
+@app.get("/")
+def root():
+    return {"message": "Stryde MVP API", "routes": ["/search", "/coverage", "/detect", "/health"]}
+
 
 def _haversine(a, b):
     lat1, lng1, lat2, lng2 = a[0], a[1], b[0], b[1]
@@ -75,126 +216,108 @@ def _haversine(a, b):
            * (1 - math.cos((lng2 - lng1) * p)) / 2.0)
     return 12742_000.0 * math.asin(math.sqrt(hav))
 
-_INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
+def cost_spec_caller(start: str, goal: str, s_cands, g_cands, cost_spec):
+    path = cost = s_used = g_used = accessibility_cost = None
+    tried = 0
+    for sc in s_cands:
+        for gc in g_cands:
+            tried += 1
+            if tried > 24:
+                break
+            result = a_star(sc["node"], gc["node"], GRAPH, cost_spec, heuristic)
+            if result is not None:
+                path, cost, accessibility_cost = result
+                s_used, g_used = sc, gc
+                break
+        if path:
+            break
+    if path is None:
+        raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
+
+    s_point = None
+    g_point = None
+    if "," in start:
+        try:
+            s_point = [float(v) for v in start.split(",")]
+        except ValueError:
+            pass
+    if "," in goal:
+        try:
+            g_point = [float(v) for v in goal.split(",")]
+        except ValueError:
+            pass
+
+    geometry = [p for p in ([s_point] if s_point else [])]
+    for n in path:
+        ll = latlngs.get(n)
+        if ll:
+            geometry.append(ll)
+    geometry += [p for p in ([g_point] if g_point else [])]
+    geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
+    if s_used is None or g_used is None:
+        return None
+    if cost is None or accessibility_cost is None:
+        return None
+    snap_connect = s_used["dist_m"] + g_used["dist_m"]
+    return {
+        "path": path,
+        "total_cost": (cost + accessibility_cost),
+        "path_cost": cost,
+        "accessibility_cost": accessibility_cost,
+        "total_cut_m": round(cost + snap_connect, 1),
+        "geometry": geometry,
+    }
+
+executor = concurrent.futures.ProcessPoolExecutor()
+
+@app.get("/search")
+async def search(start: str = Query(...), goal: str = Query(...)):
+    s_start = start.strip()
+    s_goal = goal.strip()
+    s_cands = _resolve_candidates(s_start)
+    g_cands = _resolve_candidates(s_goal)
+    loop = asyncio.get_running_loop()
+    tasks = []
+    final_paths = []
+    for cost_spec in cost_specs:
+        # result = cost_spec_caller(s_start, s_goal, s_cands, g_cands, cost_spec)
+        task = loop.run_in_executor(
+            executor, 
+            cost_spec_caller, 
+            s_start, s_goal, s_cands,g_cands,cost_spec
+        )
+        tasks.append(task)
+        # if result is not None:
+        #     final_paths.append(result)
+    final_paths = await asyncio.gather(*tasks)
+    if any(r is None for r in final_paths):
+        raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
+    return final_paths[0]
+    # return {"paths": final_paths}
+
+
+
+INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
 LAT0 = 38.9
 def to_xy(lat, lng):
     return lat * 111320.0, lng * 111320.0 * np.cos(np.radians(LAT0))
 
-try:
-    incident_df = (pd.read_csv(_INCIDENTS_PATH).dropna(subset=['LATITUDE', 'LONGITUDE']).reset_index(drop=True))
-    x, y = to_xy(incident_df['LATITUDE'].to_numpy(), incident_df['LONGITUDE'].to_numpy())
-    tree = KDTree(np.column_stack([x, y]))
-except Exception:
-    incident_df = pd.DataFrame()
-    tree = None
+incident_df = (pd.read_csv(INCIDENTS_PATH)
+                 .dropna(subset=['LATITUDE', 'LONGITUDE'])
+                 .reset_index(drop=True))
+x, y = to_xy(incident_df['LATITUDE'].to_numpy(), incident_df['LONGITUDE'].to_numpy())
+tree = KDTree(np.column_stack([x, y]))
 
-def get_incident_score(ll, k=20):
-    crash_score = 0
-    if tree is not None:
-        idx = tree.query_ball_point(to_xy(ll[0], ll[1]), r=k)
-        if idx:
-            nearby_crashes = incident_df.iloc[idx]
-            crash_score = (nearby_crashes['TOTAL_VEHICLES'].sum() * 40 + nearby_crashes['TOTAL_BICYCLES'].sum() * 800 + nearby_crashes['TOTAL_PEDESTRIANS'].sum() * 2000 + nearby_crashes['FATAL_PEDESTRIAN'].sum() * 10**6)
-    user_score = 0
-    if HAZARDS_DB.exists():
-        with open(HAZARDS_DB, 'r') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    h_lat, h_lng = float(row['lat']), float(row['lng'])
-                    dist = _haversine([ll[0], ll[1]], [h_lat, h_lng])
-                    if dist < 50:
-                        user_score += 500 if row['type'] == 'Construction' else 200
-                except: continue
-    return crash_score + user_score
-
-def get_accessibility_costs(s, a, node_ll, graph, prefs):
-    type = graph[2].get((s, a), "unknown")
-    if prefs.get("routingMode") == "fastest": return 0
-    accessibility_cost = 0
-    multiplier = 10.0 if prefs.get("avoidObstacles") else 1.0
-    if prefs.get("routingMode") == "wheelchair": multiplier *= 10.0
-    if (type == "crossing" or type == "crosswalk") and node_ll:
-        accessibility_cost += (2 + 4 * graph[1].get((s, a), 10) + get_incident_score(node_ll)) * multiplier
-    if type == "unknown":
-        accessibility_cost += (1000 + get_incident_score(node_ll) if node_ll else 1000) * multiplier
-    if prefs.get("preferSidewalks") and type != "sidewalk": accessibility_cost += 500
-    return accessibility_cost
-
-def heuristic(node_ll, goal_ll) -> float:
-    return _haversine(node_ll, goal_ll) if node_ll and goal_ll else 0
-
-def a_star(start, goal, graph, prefs):
-    start_ll, goal_ll = latlngs.get(start), latlngs.get(goal)
-    h_start = heuristic(start_ll, goal_ll)
-    frontier, explored = [], {start: ("s", h_start)}
-    heapq.heappush(frontier, (h_start, 0, start))
-    while frontier:
-        tc, pc, s = heapq.heappop(frontier)
-        if tc > explored[s][1]: continue
-        if s == goal:
-            path, cost = [s], 0
-            curr = s
-            while curr != "s":
-                parent = explored[curr][0]
-                cost += graph[1].get((parent, curr), 10) + get_accessibility_costs(parent, curr, latlngs.get(parent), graph, prefs)
-                path.append(parent)
-                curr = parent
-            return path[::-1], cost
-        for a in graph[0].get(s, []):
-            acc = get_accessibility_costs(s, a, latlngs.get(a), graph, prefs)
-            new_pc = pc + graph[1].get((s, a), 10) + acc
-            new_tc = new_pc + heuristic(latlngs.get(a), goal_ll)
-            if a not in explored or new_tc < explored[a][1]:
-                explored[a] = (s, new_tc)
-                heapq.heappush(frontier, (new_tc, new_pc, a))
-    return None
-
-app = FastAPI(title="Stryde MVP API")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-def _resolve_candidates(token):
-    t = token.strip()
-    if t in GRAPH[0]: return [{"node": t, "dist_m": 0.0, "latlng": None}]
-    parts = t.split(",")
-    if len(parts) == 2:
-        try:
-            lat, lng = float(parts[0]), float(parts[1])
-            scored = []
-            for n, (nlat, nlng) in latlngs.items():
-                dy, dx = (nlat-lat)*111320, (nlng-lng)*111320*math.cos(math.radians(lat))
-                scored.append((dx*dx+dy*dy, n, nlat, nlng))
-            scored.sort()
-            return [{"node": n, "dist_m": round(math.sqrt(d), 1), "latlng": [round(nlat, 6), round(nlng, 6)]} for d, n, nlat, nlng in scored[:6] if math.sqrt(d) <= 400]
-        except: pass
-    raise HTTPException(status_code=400, detail="Invalid location")
-
-@app.get("/")
-def root(): return {"status": "ok"}
-
-@app.get("/search")
-def search(start: str = Query(...), goal: str = Query(...), style: str = Query("safest")):
-    with open(USER_PREFS, 'r') as f: prefs = json.load(f)
-    if style == "fastest": prefs.update({"routingMode": "fastest", "avoidObstacles": False, "preferSidewalks": False})
-    elif style == "safest": prefs.update({"routingMode": "wheelchair", "avoidObstacles": True, "preferSidewalks": True})
-    elif style == "illuminated": prefs.update({"routingMode": "standard", "wellLitOnly": True, "avoidObstacles": True})
-    s_used, g_used = _resolve_candidates(start)[0], _resolve_candidates(goal)[0]
-    res = a_star(s_used["node"], g_used["node"], GRAPH, prefs)
-    if not res: raise HTTPException(status_code=404, detail="No route found")
-    path, cost = res
-    geometry = [latlngs.get(n) for n in path if latlngs.get(n)]
-    snap_connect = s_used["dist_m"] + g_used["dist_m"]
-    dist_km = round((cost + snap_connect) / 1000, 2)
-    explanations = {
-        "fastest": f"Fastest route: ignores all accessibility penalties. Distance: {dist_km}km. This is the most direct physical path.",
-        "safest": f"Safest route: maximizes sidewalk use and strictly avoids hazards. Distance: {dist_km}km. Significant detour for safety.",
-        "illuminated": f"Illuminated route: prioritizes high-visibility paths. Distance: {dist_km}km."
-    }
-    return {
-        "start": start, "goal": goal, "path": path, "cost": cost,
-        "total_cut_m": round(cost + snap_connect, 1), "geometry": geometry,
-        "explanation": explanations.get(style, f"Standard route: {dist_km}km.")
-    }
+def get_incident_score(ll,cost_spec):
+    idx = tree.query_ball_point(to_xy(ll[0], ll[1]), r=20)
+    if not idx:
+        return 0
+    nearby = incident_df.iloc[idx]     
+    val = (nearby['TOTAL_VEHICLES'].sum() * cost_spec["vehicle"]
+            + nearby['TOTAL_BICYCLES'].sum() * cost_spec["bicycle"]
+            + nearby['TOTAL_PEDESTRIANS'].sum() * cost_spec["pedestrians"]
+            + nearby['FATAL_PEDESTRIAN'].sum() * cost_spec["fatal_pedestrian"])
+    return val
 
 @app.get("/health")
 def health(): return {"ok": True, "weights": "detected", "coverage": ["demo"] }
