@@ -1,3 +1,5 @@
+# Check your emails guys
+
 # Stryde an accessible pedestrian routing app
 
 Stryde routes pedestrians — especially wheelchair and low-visibility users —
@@ -25,7 +27,7 @@ One backend serves both; one Expo app (React Native) consumes it.
 # detect:      curl -F file=@photo.jpg -F conf=0.25 http://localhost:8100/detect
 ```
 
-`/search` runs A* over the real router graph (3 535 nodes / 3 401 tubes built
+`/search` runs A\* over the real router graph (3 535 nodes / 3 401 tubes built
 from aerial inference) and returns node ids, cost in meters, a
 `geometry` lat/lng polyline, snap distances and — for "lat,lng" inputs —
 `straight_m` (crow-flies) and `ratio` (route ÷ straight line). Nearest nodes
@@ -64,21 +66,21 @@ run** required:
 3. `unzip weights_payload.zip -d .` at the repo root — files land in
    `backend/ml/street/{weights,metrics,samples}` — then restart the backend.
 
-Until then `/detect` returns HTTP 503 *"warming up"*, and the app still
+Until then `/detect` returns HTTP 503 _"warming up"_, and the app still
 lets you file the hazard report (AI step is optional).
 
 ## Repo map
 
-| Path | What |
-|---|---|
-| `backend/main.py` | MVP API: A* `/search` (+ toy-graph fallback), `/coverage`, `/detect`, `/health`, CORS |
-| `backend/graph.py` | Tile2Net generate+inference runner (e.g. Boston Common) |
-| `backend/ml/aerial/` | tile2net conversion, OSM fusion metrics, connectivity healing, QA, router-graph builder; details in `backend/ml/aerial/README.md` |
-| `backend/ml/street/` | dataset build (Roboflow v10/v1/v2 + Zenodo 6382090), training/eval/detect scripts, Colab notebook; details in `backend/ml/street/DATASETS.md` |
-| `backend/ml/FINAL_REPORT.md` | full ML report: contract change, metrics, decision log |
-| `data/router_graph/` | router handoff: `graphs[0]`=adjacency, `graphs[1]`=(n1,n2)→meters, `meta.node_latlng` |
-| `data/*_area_inferred.geojson` | aerial inference contract outputs (demo/test/nova) |
-| `frontend/src/app/` | Expo Router screens |
+| Path                           | What                                                                                                                                          |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/main.py`              | MVP API: A\* `/search` (+ toy-graph fallback), `/coverage`, `/detect`, `/health`, CORS                                                        |
+| `backend/graph.py`             | Tile2Net generate+inference runner (e.g. Boston Common)                                                                                       |
+| `backend/ml/aerial/`           | tile2net conversion, OSM fusion metrics, connectivity healing, QA, router-graph builder; details in `backend/ml/aerial/README.md`             |
+| `backend/ml/street/`           | dataset build (Roboflow v10/v1/v2 + Zenodo 6382090), training/eval/detect scripts, Colab notebook; details in `backend/ml/street/DATASETS.md` |
+| `backend/ml/FINAL_REPORT.md`   | full ML report: contract change, metrics, decision log                                                                                        |
+| `data/router_graph/`           | router handoff: `graphs[0]`=adjacency, `graphs[1]`=(n1,n2)→meters, `meta.node_latlng`                                                         |
+| `data/*_area_inferred.geojson` | aerial inference contract outputs (demo/test/nova)                                                                                            |
+| `frontend/src/app/`            | Expo Router screens                                                                                                                           |
 
 ## Notes & caveats
 

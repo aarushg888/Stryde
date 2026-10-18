@@ -35,7 +35,7 @@ export default function AppTabs() {
       />
 
       {/* 2. Routes Management */}
-      <Tabs.Screen
+      {/* <Tabs.Screen
         name="explore"
         options={{
           title: "Routes",
@@ -47,7 +47,7 @@ export default function AppTabs() {
             />
           ),
         }}
-      />
+      /> */}
 
       {/* 3. Hazards Safety Screen */}
       <Tabs.Screen
