@@ -289,11 +289,16 @@ LAT0 = 38.9
 def to_xy(lat, lng):
     return lat * 111320.0, lng * 111320.0 * np.cos(np.radians(LAT0))
 
-incident_df = (pd.read_csv(INCIDENTS_PATH)
-                 .dropna(subset=['LATITUDE', 'LONGITUDE'])
-                 .reset_index(drop=True))
-x, y = to_xy(incident_df['LATITUDE'].to_numpy(), incident_df['LONGITUDE'].to_numpy())
-tree = KDTree(np.column_stack([x, y]))
+try:
+    incident_df = (pd.read_csv(INCIDENTS_PATH)
+                   .dropna(subset=['LATITUDE', 'LONGITUDE'])
+                   .reset_index(drop=True))
+    x, y = to_xy(incident_df['LATITUDE'].to_numpy(), incident_df['LONGITUDE'].to_numpy())
+    tree = KDTree(np.column_stack([x, y]))
+except Exception as e:
+    print(f"WARNING: Crash data not found at {INCIDENTS_PATH}. Using empty dataset. Error: {e}")
+    incident_df = pd.DataFrame()
+    tree = None
 
 def get_incident_score(ll,cost_spec):
     idx = tree.query_ball_point(to_xy(ll[0], ll[1]), r=20)
