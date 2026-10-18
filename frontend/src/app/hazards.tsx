@@ -39,42 +39,82 @@ export default function HazardsScreen() {
     return () => { alive = false; };
   }, []);
 
-  const handleAttachPhoto = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo access to attach evidence.');
+const handlePhotoAction = async (mode: 'camera' | 'library') => {
+    const cameraPerm = await ImagePicker.requestCameraPermissionsAsync();
+    const libraryPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (mode === 'camera' && !cameraPerm.granted) {
+      Alert.alert('Permission needed', 'Allow camera access to take a photo of the hazard.');
       return;
     }
-    const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
+    if (mode === 'library' && !libraryPerm.granted) {
+      Alert.alert('Permission needed', 'Allow gallery access to attach a photo.');
+      return;
+    }
+
+    const options: ImagePicker.ImagePickerOptions = {
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [4, 3],
+    };
+
+    const res = mode === 'camera' 
+      ? await ImagePicker.launchCameraAsync(options)
+      : await ImagePicker.launchImageLibraryAsync(options);
+
     if (!res.canceled && res.assets.length > 0) {
       setPhotoUri(res.assets[0].uri);
       setDetections(null);
     }
   };
 
-  const handleSubmit = async () => {
+const handleSubmit = async () => {
     if (!selectedType || !locationText.trim()) {
       Alert.alert("Missing Information", "Please select a hazard type and specify the location.");
       return;
     }
-    let found: Detection[] | null = null;
-    if (photoUri) {
-      setAnalyzing(true);
-      try {
-        found = (await api.detectHazard(photoUri)).detections;
-        if (found.length === 0) {
-          Alert.alert('Model result', 'No street barriers detected in this photo.');
+
+    setAnalyzing(true);
+    try {
+      // 1. Run AI detection if photo exists
+      let found: Detection[] | null = null;
+      if (photoUri) {
+        try {
+          const detRes = await api.detectHazard(photoUri);
+          found = detRes.detections;
+        } catch (e) {
+          console.log("Detection failed, submitting anyway");
         }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Detection failed';
-        // model still training on Colab -> 503 "warming up": submit anyway
-        Alert.alert('Detector unavailable', msg);
-      } finally {
-        setAnalyzing(false);
       }
+
+      // 2. Send to backend /report
+      // We need to use FormData for the photo upload
+      const formData = new FormData();
+      formData.append('type', selectedType);
+      formData.append('lat', '0.0'); // In a real app, we'd get current GPS
+      formData.append('lng', '0.0');
+      formData.append('description', description);
+      
+      if (photoUri) {
+        const filename = photoUri.split('/').pop() || 'hazard.jpg';
+        const match = {
+          uri: photoUri,
+          name: filename,
+          type: 'image/jpeg',
+        };
+        // @ts-ignore
+        formData.append('file', match);
+      }
+
+      await api.reportHazard(formData);
+      
+      setDetections(found);
+      setIsSubmitted(true);
+    } catch (e) {
+      Alert.alert('Submission Error', e instanceof Error ? e.message : 'Failed to report hazard');
+    } finally {
+      setAnalyzing(false);
     }
-    setDetections(found);
-    setIsSubmitted(true);
   };
 
   const handleResetForm = () => {
@@ -222,18 +262,37 @@ export default function HazardsScreen() {
           {/* Section 4: Photo attachment anchor */}
           <View style={styles.section}>
             <ThemedText style={styles.sectionLabel}>4. Visual Evidence</ThemedText>
+            <View style={styles.photoActionsRow}>
             <TouchableOpacity 
-              style={[styles.photoButton, { borderColor: photoUri ? '#2ecc71' : colors.backgroundElement }]}
-              onPress={handleAttachPhoto}
+              style={[styles.photoActionBtn, { borderColor: colors.backgroundElement }]}
+              onPress={() => handlePhotoAction('camera')}
               activeOpacity={0.7}
             >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.two }}>
-              {!analyzing && !photoUri && <MaterialIcons name="photo-camera" size={16} color="#888" />}
-              <ThemedText style={[styles.photoButtonText, photoUri && { color: '#2ecc71' }]}>
-                {analyzing ? 'Analyzing photo…' : photoUri ? 'Photo attached — will be analyzed' : 'Attach photo'}
-              </ThemedText>
-            </View>
+              <MaterialIcons name="photo-camera" size={20} color="#888" />
+              <ThemedText style={styles.photoActionText}>Take Photo</ThemedText>
             </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.photoActionBtn, { borderColor: colors.backgroundElement }]}
+              onPress={() => handlePhotoAction('library')}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="photo-library" size={20} color="#888" />
+              <ThemedText style={styles.photoActionText}>Upload Photo</ThemedText>
+            </TouchableOpacity>
+          </View>
+          
+          {photoUri && (
+            <View style={styles.photoPreviewContainer}>
+               <Image source={{ uri: photoUri }} style={styles.photoPreview} />
+               <TouchableOpacity 
+                style={styles.removePhotoBtn} 
+                onPress={() => setPhotoUri(null)}
+               >
+                 <MaterialIcons name="close" size={20} color="#fff" />
+               </TouchableOpacity>
+            </View>
+          )}
           </View>
 
           {/* Main Action Submit Anchor */}
@@ -399,4 +458,49 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
     marginBottom: Spacing.four,
   },
+
+  photoActionsRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  photoActionBtn: {
+    flex: 1,
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: Spacing.two,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  photoActionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#888',
+  },
+  photoPreviewContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 150,
+    marginTop: Spacing.two,
+    borderRadius: Spacing.three,
+    overflow: 'hidden',
+  },
+  photoPreview: {
+    width: '100%',
+    height: '100%',
+  },
+  removePhotoBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
 });

@@ -20,7 +20,10 @@ import {
   useColorScheme,
   View,
 } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import MapView, {
+  Marker,
+  Polyline
+} from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // MVP coverage area kept in sync with the backend's built graph (Logan Circle).
@@ -160,11 +163,10 @@ export default function HomeScreen() {
         1,
         Math.round((result.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
       );
-      // const detour =
-      //   result.straight_m && result.ratio
-      //     ? ` · ${result.ratio}× straight line`
-      //     : "";
-      const detour = "";
+      const detour =
+        result.straight_m && result.ratio
+          ? ` · ${result.ratio}× straight line`
+          : "";
       setRouteStatus(
         `${km} km · about ${mins} min${detour} · ${result.path.length} segments`,
       );
