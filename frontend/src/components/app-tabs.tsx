@@ -10,11 +10,12 @@ export default function AppTabs() {
     <Tabs
       screenOptions={{
         headerShown: false, // Hides the default top action header bar
-        tabBarActiveTintColor: colors.text,
-        tabBarInactiveTintColor: colors.backgroundElement,
+        tabBarActiveTintColor: "#3498db",
+        tabBarInactiveTintColor: colors.text,
         tabBarStyle: {
-          backgroundColor: "#303edf",
-          borderTopWidth: 0, // Keeps bottom menu transition flat and clean
+          backgroundColor: "#1b1c1f",
+          // marginTop: 5,
+          paddingTop: 5, // Keeps bottom menu transition flat and clean
         },
       }}
     >
