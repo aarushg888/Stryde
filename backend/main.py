@@ -52,20 +52,23 @@ cost_specs = [
 ]
 def _load_graph_osm():
     data = REPO / "data" / "osm" / "pickle"
-    with open(data / "node_latlng.pkl", 'rb') as file:
-        node_latlng = pickle.load(file)
-    with open(data / "adjacencies.pkl", 'rb') as file:
-        adjacencies = pickle.load(file)
-    with open(data / "tube_kind.pkl", 'rb') as file:
-        tube_kind = pickle.load(file)
-    with open(data / "tubes.pkl", 'rb') as file:
-        tubes = pickle.load(file)
-    node_latlng = dict(node_latlng)
-    adjacencies = dict(adjacencies)
-    tubes = dict(tubes)
-    tube_kind = dict(tube_kind)
-
-    return [adjacencies, tubes, tube_kind],node_latlng
+    try:
+        with open(data / "node_latlng.pkl", 'rb') as file:
+            node_latlng = pickle.load(file)
+        with open(data / "adjacencies.pkl", 'rb') as file:
+            adjacencies = pickle.load(file)
+        with open(data / "tube_kind.pkl", 'rb') as file:
+            tube_kind = pickle.load(file)
+        with open(data / "tubes.pkl", 'rb') as file:
+            tubes = pickle.load(file)
+        return [dict(adjacencies), dict(tubes), dict(tube_kind)], dict(node_latlng)
+    except (FileNotFoundError, IsADirectoryError, pickle.UnpicklingError) as e:
+        print(f"WARNING: OSM data not found at {data}. Falling back to toy graph. Error: {e}")
+        return [
+            {"n1": ["n2"], "n2": ["n1"]}, 
+            {"(n1,n2)": 10, "(n2,n1)": 10}, 
+            {"(n1,n2)": "sidewalk", "(n2,n1)": "sidewalk"}
+        ], {"n1": (38.913, -77.032), "n2": (38.914, -77.033)}
         
 GRAPH, latlngs = _load_graph_osm()
 
