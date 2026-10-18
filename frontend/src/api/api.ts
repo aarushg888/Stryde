@@ -29,7 +29,7 @@ export type Detection = {
   bbox: number[]; // [x1, y1, x2, y2] px in the uploaded image
 };
 
-export type RouteResult = {
+export type PathResult = {
   start: string;
   goal: string;
   start_node: string;
@@ -44,7 +44,9 @@ export type RouteResult = {
   geometry: [number, number][]; // [lat, lng] — polyline coordinates
   // graph: { nodes: number; tubes: number };
 };
-
+export type RouteResult = {
+  paths: PathResult[];
+};
 export type Health = {
   ok: boolean;
   weights: string | null; // null while the detector is still training

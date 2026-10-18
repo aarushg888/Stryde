@@ -288,32 +288,17 @@ async def search(start: str = Query(...), goal: str = Query(...)):
     final_paths = await asyncio.gather(*tasks)
     if any(r is None for r in final_paths):
         raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
-    return final_paths[3]
-    # return {"paths": final_paths}
-
-_COVERAGE = {
-    "demo": "data/demo_area_inferred.geojson",
-    "test": "data/test_area_inferred.geojson",
-    "nova": "data/nova_area_inferred.geojson",
-}
+    # return final_paths[3]
+    return {"paths": final_paths}
 
 
-def _coverage_file(area: str) -> pathlib.Path:
-    rel = _COVERAGE.get(area)
-    if rel is None:
-        raise HTTPException(status_code=404, detail=f"no coverage area '{area}' (demo|test|nova)")
-    file = REPO / rel
-    if not file.exists():
-        raise HTTPException(status_code=503, detail=f"coverage file missing: run the aerial pipeline ({rel})")
-    return file
 
-
-_INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
+INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
 LAT0 = 38.9
 def to_xy(lat, lng):
     return lat * 111320.0, lng * 111320.0 * np.cos(np.radians(LAT0))
 
-incident_df = (pd.read_csv(_INCIDENTS_PATH)
+incident_df = (pd.read_csv(INCIDENTS_PATH)
                  .dropna(subset=['LATITUDE', 'LONGITUDE'])
                  .reset_index(drop=True))
 x, y = to_xy(incident_df['LATITUDE'].to_numpy(), incident_df['LONGITUDE'].to_numpy())
@@ -330,28 +315,12 @@ def get_incident_score(ll,cost_spec):
             + nearby['FATAL_PEDESTRIAN'].sum() * cost_spec["fatal_pedestrian"])
     return val
 
-
-@app.get("/coverage")
-def coverage(area: str = Query("demo", description="demo|test|nova")):
-    file = _coverage_file(area)
-    return {"area": area, "file": file.name,
-            "geojson": json.loads(file.read_text())}
-
-
-def _weights_status():
-    from backend.ml.street.scripts.detector import WEIGHTS_CANDIDATES
-    for cand in WEIGHTS_CANDIDATES:
-        if cand.exists():
-            return str(cand)
-    return None
-
-
 @app.get("/health")
 def health():
     return {
         "ok": True,
-        "weights": _weights_status(),
-        "coverage": [a for a, rel in _COVERAGE.items() if (REPO / rel).exists()],
+        # "weights": _weights_status(),
+        # "coverage": [a for a, rel in _COVERAGE.items() if (REPO / rel).exists()],
     }
 
 

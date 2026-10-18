@@ -310,14 +310,15 @@ export default function HomeScreen() {
                       <MaterialIcons name="close" size={20} color="#64748b" />
                     </TouchableOpacity>
                   )}
-                  <ThemedText
+
+                  {/* <ThemedText
                     type="small"
                     themeColor="textSecondary"
                     style={styles.plannerLabel}
                   >
                     Choose Your Destination
-                  </ThemedText>
-                  {svcState !== "online" && (
+                  </ThemedText> */}
+                  {/* {svcState !== "online" && (
                     <View
                       accessibilityLabel={`Backend status: ${svcState}`}
                       style={[
@@ -358,8 +359,8 @@ export default function HomeScreen() {
                             : "Checking…"}
                       </ThemedText>
                     </View>
-                  )}
-                  <TouchableOpacity
+                  )} */}
+                  {/* <TouchableOpacity
                     style={styles.textChip}
                     onPress={loadDemo}
                     accessibilityRole="button"
@@ -368,7 +369,7 @@ export default function HomeScreen() {
                     <ThemedText style={styles.textChipText}>
                       Demo route
                     </ThemedText>
-                  </TouchableOpacity>
+                  </TouchableOpacity> */}
                 </View>
 
                 {plannerExpanded && (
