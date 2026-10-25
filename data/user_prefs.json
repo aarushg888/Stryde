@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 {"routingMode": "wheelchair", "preferSidewalks": false, "wellLitOnly": false, "lowTraffic": false, "avoidObstacles": false}
+=======
+{"routingMode": "standard", "preferSidewalks": false, "wellLitOnly": false, "lowTraffic": false, "avoidObstacles": false}
+>>>>>>> 4651f91 (Map-first redesign: subtab drawer over full-screen map, smooth inputs, backend wake-up retries)

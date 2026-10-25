@@ -73,7 +73,7 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '(function(){',
     '  var S = window.__stryde__ || {};',
     '  function applyScheme(scheme){ document.body.classList.toggle("dark", scheme === "dark"); }',
-    '  var map = L.map("map", {zoomControl:true, attributionControl:true, preferCanvas:true,',
+    '  var map = L.map("map", {zoomControl:false, attributionControl:true, preferCanvas:true,',
     '    maxBounds:' + JSON.stringify(DC_BOUNDS) + ',',
     '    maxBoundsViscosity:1.0, minZoom:12, maxZoom:18.5});',
     '  L.tileLayer("' + SATELLITE_URL + '", {maxZoom:18.5, attribution:"Imagery &copy; Esri, Maxar, Earthstar Geographics"}).addTo(map);',

@@ -8,7 +8,7 @@
 //  3. localhost (simulator / web)
 import Constants from "expo-constants";
 
-const DEV_FALLBACK = "http://192.168.1.18:8100";
+const DEV_FALLBACK = "http://localhost:8100";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 const PREFS_KEY = "stryde:prefs";
 function resolveBaseUrl(): string {
@@ -65,18 +65,38 @@ export type ChatPreferences = {
 };
 
 /**
- * Wrapper so connection failures (phone hitting `localhost`, backend down) come
- * back as one clear, actionable message instead of a bare TypeError.
+ * Wrapper so connection failures (phone hitting `localhost`, backend waking on
+ * free hosting) come back as one clear, actionable message instead of a bare
+ * TypeError. Hosted backends (e.g. Render free tier) sleep between requests,
+ * so each call retries twice with a short backoff before surfacing the error.
  */
 async function request(path: string, init?: RequestInit): Promise<Response> {
-  let res: Response;
-  try {
-    res = await fetch(`${BASE_URL}${path}`, init);
-  } catch {
-    throw new Error(
-      `Cannot reach the backend at ${BASE_URL}. Start it: uvicorn backend.main:app --host 0.0.0.0 --port 8100. ` +
-        "On a physical phone, use your computer's LAN IP: EXPO_PUBLIC_API_URL=http://<mac-ip>:8100",
-    );
+  const maxAttempts = 3;
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      res = await fetch(`${BASE_URL}${path}`, init);
+    } catch {
+      // Host asleep / offline: back off (0.8s, 2.4s) and try again.
+      if (attempt + 1 < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 800 * 3 ** attempt));
+        continue;
+      }
+      throw new Error(
+        `Cannot reach the backend at ${BASE_URL}. It may still be waking up — try again in a minute.`,
+      );
+    }
+    if (res.status >= 500 || res.status === 503) {
+      // Cold-start gateway errors also merit a retry.
+      if (attempt + 1 < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 800 * 3 ** attempt));
+        continue;
+      }
+    }
+    break;
+  }
+  if (!res) {
+    throw new Error(`Cannot reach the backend at ${BASE_URL}.`);
   }
   if (!res.ok) await parseError(res);
   return res;

@@ -6,9 +6,9 @@ import {
   TabTriggerSlotProps,
   TabListProps,
 } from 'expo-router/ui';
-import { Pressable, useColorScheme, View, StyleSheet } from 'react-native';
+import { Pressable, View, StyleSheet } from 'react-native';
 
-import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -52,18 +52,17 @@ export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps
 }
 
 export function CustomTabList(props: TabListProps) {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
-
+  // Subtab chips now live inside the map drawer ("Route settings · Hazards ·
+  // Preferences"), so the old floating web tab pill is hidden — the map stays
+  // full-screen with nothing drawn over it. Triggers stay registered with the
+  // router so deep links still resolve.
   return (
-    <View {...props} style={styles.tabListContainer} pointerEvents="box-none">
-      <ThemedView type="backgroundElement" style={styles.innerContainer}>
-        <ThemedText type="smallBold" style={styles.brandText}>
-          Stryde
-        </ThemedText>
-
-        {props.children}
-      </ThemedView>
+    <View
+      {...props}
+      style={[styles.tabListContainer, styles.tabListHidden]}
+      pointerEvents="none"
+    >
+      {props.children}
     </View>
   );
 }
@@ -78,6 +77,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     top:20
   },
+  tabListHidden: {
+    opacity: 0,
+    height: 0,
+    padding: 0,
+    overflow: 'hidden',
+  },
   innerContainer: {
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.five,
@@ -86,7 +91,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexGrow: 1,
     gap: Spacing.two,
-    maxWidth: MaxContentWidth,
   },
   brandText: {
     marginRight: 'auto',

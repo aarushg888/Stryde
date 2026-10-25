@@ -198,7 +198,7 @@ NO_PATH_NEARBY = (
 @app.get("/")
 def root():
     return {"message": "Stryde MVP API",
-            "routes": ["/search", "/coverage", "/detect", "/health", "/chat", "/report", "/hazards", "/preferences"]}
+            "routes": ["/search", "/coverage", "/detect", "/health", "/chat", "/report", "/hazards"]}
 
 
 def _haversine(a, b):
