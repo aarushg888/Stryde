@@ -25,7 +25,6 @@ export function usePlaceSearch(query: string, enabled: boolean) {
 
   useEffect(() => {
     if (!enabled || query.trim().length < MIN_QUERY_LENGTH) {
-      setSuggestions([]);
       return;
     }
 
@@ -52,7 +51,12 @@ export function usePlaceSearch(query: string, enabled: boolean) {
     };
   }, [query, enabled]);
 
-  return { suggestions, searching, clearSuggestions: () => setSuggestions([]) };
+  // Consumers see an empty list whenever the query is too short to search;
+  // results are only ever appended by the fetch effect itself.
+  const visibleSuggestions =
+    enabled && query.trim().length >= MIN_QUERY_LENGTH ? suggestions : [];
+
+  return { suggestions: visibleSuggestions, searching, clearSuggestions: () => setSuggestions([]) };
 }
 
 async function searchPlaces(

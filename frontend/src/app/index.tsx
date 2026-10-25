@@ -152,33 +152,32 @@ export default function HomeScreen() {
         destinationCoords.trim(),
       );
       setRoutes(result);
-      const coordArr: { latitude: number; longitude: number }[][] = [];
-      for (const path of result.paths) {
-        const km = (path.total_cut_m / 1000).toFixed(2);
-        const mins = Math.max(
-          1,
-          Math.round((path.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
-        );
-        setRouteStatus(`${km} km · about ${mins} min`);
-        coordArr.push(
+      const coordArr: { latitude: number; longitude: number }[][] =
+        result.paths.map((path) =>
           path.geometry.map(([lat, lng]) => ({
             latitude: lat,
             longitude: lng,
           })),
         );
-        if (path.geometry.length > 1) {
-          mapRef.current?.fitToCoordinates(
-            path.geometry.map(([lat, lng]) => ({
-              latitude: lat,
-              longitude: lng,
-            })),
-            {
-              edgePadding: { top: 80, right: 60, bottom: 80, left: 60 },
-              animated: true,
-            },
-          );
-        }
-        setRouteCoords(coordArr);
+      const bestPath = result.paths[0];
+      const km = (bestPath.total_cut_m / 1000).toFixed(2);
+      const mins = Math.max(
+        1,
+        Math.round((bestPath.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
+      );
+      setRouteStatus(`${km} km · about ${mins} min`);
+      setRouteCoords(coordArr);
+      if (bestPath.geometry.length > 1) {
+        mapRef.current?.fitToCoordinates(
+          bestPath.geometry.map(([lat, lng]) => ({
+            latitude: lat,
+            longitude: lng,
+          })),
+          {
+            edgePadding: { top: 80, right: 60, bottom: 80, left: 60 },
+            animated: true,
+          },
+        );
       }
       setAlternateRoutes(true);
     } catch (e) {
