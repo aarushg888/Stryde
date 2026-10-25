@@ -100,8 +100,25 @@ export const api = {
     return res.json();
   },
 
-  async searchRoute(start: string, goal: string): Promise<RouteResult> {
+  async searchRoute(
+    start: string,
+    goal: string,
+    prefs?: Partial<{
+      mode: string;
+      preferSidewalks: boolean;
+      avoidObstacles: boolean;
+      wellLitOnly: boolean;
+      lowTraffic: boolean;
+    }>,
+  ): Promise<RouteResult> {
     const qs = new URLSearchParams({ start, goal });
+    if (prefs) {
+      if (prefs.mode) qs.set("mode", prefs.mode);
+      if (prefs.preferSidewalks) qs.set("preferSidewalks", "true");
+      if (prefs.avoidObstacles) qs.set("avoidObstacles", "true");
+      if (prefs.wellLitOnly) qs.set("wellLitOnly", "true");
+      if (prefs.lowTraffic) qs.set("lowTraffic", "true");
+    }
     const res = await request(`/search?${qs}`);
     return res.json();
   },

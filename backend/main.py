@@ -30,6 +30,7 @@ cost_specs = [
         "bicycle": 2,
         "pedestrians": 4,
         "fatal_pedestrian": 50,
+        "hazard": 14,
     },
     {   # balanced
         "crossing_base": 0,
@@ -39,6 +40,7 @@ cost_specs = [
         "bicycle": 1,
         "pedestrians": 2,
         "fatal_pedestrian": 25,
+        "hazard": 7,
     },
     {   # shortest
         "crossing_base": 0,
@@ -48,6 +50,7 @@ cost_specs = [
         "bicycle": 0,
         "pedestrians": 0,
         "fatal_pedestrian": 0,
+        "hazard": 0,
     },
 ]
 def _load_graph_osm():
@@ -98,6 +101,8 @@ def get_accessibility_costs(s,a,node_ll, graph, cost_spec):
         accessibility_cost += cost_spec["crossing_base"]+cost_spec["crossing_length"]*graph[1][(s,a)] + get_incident_score(node_ll,cost_spec)
     if type == "unknown":
         accessibility_cost += cost_spec["unknown"] + get_incident_score(node_ll, cost_spec)
+    if (type == "crossing" or type == "crosswalk" or type == "unknown") and node_ll:
+        accessibility_cost += get_reported_penalty(node_ll, cost_spec)
     return accessibility_cost
 def a_star(start, goal, graph,cost_spec, heuristic=heuristic):
    if start not in graph[0]:
@@ -258,16 +263,48 @@ def cost_spec_caller(start: str, goal: str, s_cands, g_cands, cost_spec):
 
 executor = concurrent.futures.ProcessPoolExecutor()
 
+def apply_flag_scales(spec: dict, mode: str | None, prefer_sidewalks: bool,
+                      avoid_obstacles: bool, well_lit: bool, low_traffic: bool) -> dict:
+    """Copy of a cost profile scaled by the user's saved/typed preferences."""
+    copy = dict(spec)
+    if mode == "wheelchair":
+        copy["unknown"] *= 1.35
+        copy["crossing_base"] += 2.0
+        copy["hazard"] *= 1.4
+    if prefer_sidewalks:
+        copy["crossing_base"] += 1.0
+    if avoid_obstacles:
+        copy["hazard"] *= 1.35
+    if well_lit:
+        copy["unknown"] *= 1.2
+    if low_traffic:
+        copy["vehicle"] *= 1.6
+        copy["bicycle"] *= 1.3
+    return copy
+
+
 @app.get("/search")
-async def search(start: str = Query(...), goal: str = Query(...)):
+async def search(
+    start: str = Query(...),
+    goal: str = Query(...),
+    mode: str | None = Query(None),
+    preferSidewalks: bool = Query(False),
+    avoidObstacles: bool = Query(False),
+    wellLitOnly: bool = Query(False),
+    lowTraffic: bool = Query(False),
+):
     s_start = start.strip()
     s_goal = goal.strip()
     s_cands = _resolve_candidates(s_start)
     g_cands = _resolve_candidates(s_goal)
+    effective_specs = [
+        apply_flag_scales(cs, mode, preferSidewalks, avoidObstacles, wellLitOnly, lowTraffic)
+        for cs in cost_specs
+    ]
     loop = asyncio.get_running_loop()
     tasks = []
     final_paths = []
-    for cost_spec in cost_specs:
+    for cost_spec in effective_specs:
         # result = cost_spec_caller(s_start, s_goal, s_cands, g_cands, cost_spec)
         task = loop.run_in_executor(
             executor, 
@@ -301,6 +338,50 @@ except Exception as e:
     print(f"WARNING: Crash data not found at {INCIDENTS_PATH}. Using empty dataset. Error: {e}")
     incident_df = pd.DataFrame()
     tree = None
+
+HZ_SEVERITY = {"Construction": 1.6, "Sidewalk": 1.2, "Tree": 1.0, "Other": 0.8}
+_hz_cache: dict = {"path": None, "mtime": None, "tree": None, "types": None}
+
+def _hazard_layer():
+    """KD-tree of user-reported hazards; rebuilt when the CSV changes."""
+    path = HAZARDS_DB
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = None
+    if _hz_cache["tree"] is not None and _hz_cache["mtime"] == mtime:
+        return _hz_cache["tree"], _hz_cache["types"]
+    pts, types = [], []
+    try:
+        with open(path, newline='') as f:
+            for row in csv.reader(f):
+                row = (row + ["", "", "", "", ""])[:5]
+                _ts, htype, lat, lng, _d = row
+                try:
+                    la, lo = float(lat), float(lng)
+                except (TypeError, ValueError):
+                    continue
+                if abs(la) > 90 or abs(lo) > 180 or (la == 0 and lo == 0):
+                    continue
+                pts.append(to_xy(la, lo))
+                types.append(htype)
+    except FileNotFoundError:
+        pts = []
+    htree = KDTree(np.array(pts, dtype=float).reshape(-1, 2)) if pts else None
+    _hz_cache.update(path=path, mtime=mtime, tree=htree, types=types)
+    return htree, types
+
+
+def get_reported_penalty(ll, cost_spec):
+    htree, htypes = _hazard_layer()
+    if htree is None:
+        return 0
+    idx = htree.query_ball_point(to_xy(ll[0], ll[1]), r=30)
+    val = 0.0
+    for i in idx:
+        val += cost_spec.get("hazard", 0) * HZ_SEVERITY.get(htypes[i], 0.8)
+    return val
+
 
 def get_incident_score(ll,cost_spec):
     if tree is None:

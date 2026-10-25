@@ -1,4 +1,4 @@
-import { DC_REGION } from "@/utils/geo";
+import { DC_BOUNDS, DC_REGION, inDC } from "@/utils/geo";
 import { useEffect, useState } from "react";
 
 export type PlaceSuggestion = {
@@ -81,13 +81,26 @@ async function searchPlaces(
     });
     if (!response.ok) throw new Error(`PlaceKit error: ${response.status}`);
     const data: { results: PlaceSuggestion[] } = await response.json();
-    return data.results;
+    return data.results.filter(
+      (r) => inDC(r.lat, r.lng) && !labeledOutsideDC(r.name, r.administrative),
+    );
   }
   return nominatimSearch(query, signal);
 }
 
-// A generous DC/Beltway viewbox (left,top,right,bottom) to bias results.
-const VIEWBOX = "-77.20,39.05,-76.80,38.70";
+// Bias and hard-filter results to the DC service boundary.
+const VIEWBOX = `${DC_BOUNDS.minLongitude},39.03,${DC_BOUNDS.maxLongitude},38.75`;
+
+// The bbox above catches MD/VA border towns (Riverdale Park, Takoma Park, etc.);
+// anything labeled with those states — rather than "District of Columbia" — is
+// outside Stryde's service area, so drop it no matter where it lands.
+const OUTSIDE_STATES = /,? *(?:Washington,) *(?:Maryland|Virginia)(?:,|$)/;
+const LABELED_OUTSIDE = /(?:,|, ) *(?:Maryland|Virginia)(?:,|$)/;
+
+function labeledOutsideDC(label: string, state?: string): boolean {
+  if (state === "Maryland" || state === "Virginia") return true;
+  return LABELED_OUTSIDE.test(label) || OUTSIDE_STATES.test(label);
+}
 
 type NominatimRow = {
   display_name: string;
@@ -114,7 +127,11 @@ async function nominatimSearch(
   );
   if (!response.ok) throw new Error(`Nominatim error: ${response.status}`);
   const rows: NominatimRow[] = await response.json();
-  return rows.map((row) => {
+  return rows.filter(
+    (row) =>
+      inDC(Number.parseFloat(row.lat), Number.parseFloat(row.lon)) &&
+      !labeledOutsideDC(row.display_name),
+  ).map((row) => {
     const address = row.address ?? {};
     const parts = row.display_name.split(",").map((part) => part.trim());
     return {

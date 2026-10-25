@@ -1,24 +1,34 @@
-/**
- * The Leaflet/OSM document that powers Stryde's map, generated once as a
- * string so both hosts (native react-native-webview, web <iframe>) render the
- * identical page from the same source.
- *
- * Contract with hosts:
- *  - initial paint is driven by `window.__stryde__` embedded at build time;
- *  - runtime updates arrive from the host as postMessage JSON
- *    ({type:'state',payload:State}) or ({type:'fit',coords,pad});
- *  - the page listens to BOTH 'message' windows events because the react-
- *    native-webview bridge emits on `window` (Android) and `document` (iOS).
- *
- * Tiles: standard OpenStreetMap raster tiles, dark mode done in-CSS
- * (invert+hue-rotate) so a single tile source and single attribution cover
- * both schemes.
- */
-import type { LeafletScheme } from './leaflet-types';
+import type {
+  LeafletScheme,
+  LeafletLatLng,
+  LeafletRouteLine,
+} from './leaflet-types';
 
-const TILE_URL = 'https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png';
+/**
+ * Web build of the Stryde map (previously Leaflet/OSM filter tiles).
+ *
+ * Basemap: Esri World Imagery (keyless satellite raster) + Esri place labels
+ * overlay — an Apple-Maps-satellite look that renders reliably everywhere.
+ * The map is locked to Washington DC (maxBounds) so trips outside the service
+ * area cannot start.
+ *
+ * Communication contract:
+ *   -> boot state injected as window.__stryde__ (scheme/center/route(s)/markers)
+ *   -> "state" postMessage updates routes/markers; "fit" recenters
+ *   <- "pick" postMessage {point:[lat,lng]} on tap anywhere on the map
+ */
+
 const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
 const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+const SATELLITE_URL =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const LABELS_URL =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+
+const DC_BOUNDS: [[number, number], [number, number]] = [
+  [38.78, -77.125], // SW corner (lat,lng)
+  [39.005, -76.885], // NE corner
+];
 
 export type LeafletBoot = {
   scheme?: LeafletScheme;
@@ -34,6 +44,7 @@ export type LeafletBoot = {
     color: string;
     title?: string;
     description?: string;
+    emoji?: string;
   }[];
 };
 
@@ -45,12 +56,14 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">',
     '<link rel="stylesheet" href="' + LEAFLET_CSS + '">',
     '<style>',
-    'html,body{height:100%;margin:0;padding:0;}',
-    '#map{height:100%;background:#0b0f14;font-family:-apple-system,Roboto,sans-serif;}',
-    '/* Wikimedia raster tiles get Stryde night mode via a tuned CSS filter */',
-    'body.dark .leaflet-tile{filter:brightness(0.62) invert(1) contrast(2.4) hue-rotate(196deg) saturate(0.32) brightness(0.82);}',
-    'body.dark .leaflet-control-attribution{background:rgba(13,17,23,0.75);color:#8fa0b3;}',
+    'html,body{height:100%;margin:0;padding:0;background:#131b21;}',
+    '#map{height:100%;width:100%;background:#131b21;font-family:-apple-system,Roboto,sans-serif;}',
+    '.leaflet-container{background:#131b21;}',
+    '.leaflet-control-attribution{background:rgba(13,17,23,0.72);color:#9fb0c0;font-size:10px;}',
+    'body.dark .leaflet-control-attribution{color:#8ea0b3;}',
     '.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#fff;border-radius:10px;}',
+    '.stryde-pin{width:13px;height:13px;border-radius:50%;border:2.5px solid #ffffff;box-shadow:0 1px 5px rgba(5,12,18,0.55);}',
+    '.stryde-note{width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;background:#fff;border:2px solid rgba(240,190,60,0.95);box-shadow:0 1px 4px rgba(5,12,18,0.5);}',
     '</style>',
     '</head><body>',
     '<div id="map"></div>',
@@ -59,15 +72,17 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '<script>',
     '(function(){',
     '  var S = window.__stryde__ || {};',
-    '  var map = L.map("map", {zoomControl:true, attributionControl:true, preferCanvas:true});',
-    '  L.tileLayer("' + TILE_URL + '", {maxZoom:19, attribution:"&copy; OpenStreetMap contributors, tiles &copy; Wikimedia"}).addTo(map);',
+    '  function applyScheme(scheme){ document.body.classList.toggle("dark", scheme === "dark"); }',
+    '  var map = L.map("map", {zoomControl:true, attributionControl:true, preferCanvas:true,',
+    '    maxBounds:' + JSON.stringify(DC_BOUNDS) + ',',
+    '    maxBoundsViscosity:1.0, minZoom:12, maxZoom:18.5});',
+    '  L.tileLayer("' + SATELLITE_URL + '", {maxZoom:18.5, attribution:"Imagery &copy; Esri, Maxar, Earthstar Geographics"}).addTo(map);',
+    '  L.tileLayer("' + LABELS_URL + '", {maxZoom:18.5, opacity:0.92, attribution:"Labels &copy; Esri"}).addTo(map);',
     '  var routeLayer = L.layerGroup().addTo(map);',
     '  var markerLayer = L.layerGroup().addTo(map);',
-    '  function isDark(){ return document.body.classList.contains("dark"); }',
-    '  function applyScheme(scheme){ document.body.classList.toggle("dark", scheme === "dark"); }',
     '  function setRoutes(st){',
     '    routeLayer.clearLayers();',
-    '    var single = st.route && st.route.length > 1 ? [{coords: st.route, color: isDark() ? "#2ecc71" : "#27ae60", selected: true}] : null;',
+    '    var single = st.route && st.route.length > 1 ? [{coords: st.route, color: "#22c55e", selected: true}] : null;',
     '    var lines = st.routes && st.routes.length ? st.routes : single;',
     '    if (!lines) return;',
     '    var hasAny = false;',
@@ -76,10 +91,10 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '      if (!coords || coords.length < 2) return;',
     '      hasAny = true;',
     '      if (line.selected){',
-    '        L.polyline(coords, {color:"rgba(255,255,255,0.85)", weight:7, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
-    '        L.polyline(coords, {color:line.color, weight:4, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
+    '        L.polyline(coords, {color:"rgba(255,255,255,0.9)", weight:8, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
+    '        L.polyline(coords, {color:line.color, weight:4.5, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
     '      } else {',
-    '        L.polyline(coords, {color:line.color, weight:3, opacity:0.85, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
+    '        L.polyline(coords, {color:line.color, weight:3.2, opacity:0.95, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
     '      }',
     '    });',
     '    if (hasAny){',
@@ -90,9 +105,13 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '  function setMarkers(markers){',
     '    markerLayer.clearLayers();',
     '    (markers || []).forEach(function(m){',
-    '      L.circleMarker(m.point, {radius:8, color:"#ffffff", weight:2, fillColor:m.color, fillOpacity:1})',
-    '        .addTo(markerLayer)',
-    '        .bindPopup("<b>" + (m.title || "") + "</b>" + (m.description ? "<br>" + m.description : ""));',
+    '      if (m.emoji){',
+    '        var icon = L.divIcon({className:"", html:"<div class=\'stryde-note\' title=\'" + (m.title||"") + "\'>" + m.emoji + "</div>", iconSize:[26,26], iconAnchor:[13,13]});',
+    '        L.marker(m.point, {icon: icon}).addTo(markerLayer).bindPopup("<b>" + (m.title || "") + "</b>" + (m.description ? "<br>" + m.description : ""));',
+    '      } else {',
+    '        var icon = L.divIcon({className:"", html:"<div class=\'stryde-pin\' style=\'background:" + (m.color||"#22c55e") + "\'></div>", iconSize:[13,13], iconAnchor:[6.5,6.5]});',
+    '        L.marker(m.point, {icon: icon}).addTo(markerLayer).bindPopup("<b>" + (m.title || "") + "</b>" + (m.description ? "<br>" + m.description : ""));',
+    '      }',
     '    });',
     '  }',
     '  function fit(coords, pad){',
@@ -100,7 +119,7 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '    var opts = pad ? {',
     '      paddingTopLeft:[pad.left || 60, pad.top || 80],',
     '      paddingBottomRight:[pad.right || 60, pad.bottom || 80],',
-    '    } : {};',
+    '    } : {paddingTopLeft:[70,80], paddingBottomRight:[70,90]};',
     '    map.fitBounds(L.latLngBounds(coords), opts);',
     '  }',
     '  function applyState(st){',
@@ -109,7 +128,7 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '    setRoutes(st);',
     '    setMarkers(st.markers);',
     '    if ((st.route && st.route.length > 1) || (st.routes && st.routes.length)) return;',
-    '    map.setView(st.center || [38.9137, -77.0325], 15);',
+    '    map.setView(st.center || [38.9137, -77.0325], 14.4);',
     '  }',
     '  map.on("click", function(ev){',
     '    try{',
@@ -134,3 +153,5 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '</body></html>',
   ].join('\n');
 }
+
+export type { LeafletLatLng, LeafletRouteLine };

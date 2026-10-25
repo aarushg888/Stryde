@@ -1,5 +1,6 @@
 import { forwardRef, memo, useImperativeHandle, useRef } from 'react';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import { StyleSheet, Text, View } from 'react-native';
+import MapView, { Marker, Polyline, Circle } from 'react-native-maps';
 import type {
   AppMapHandle,
   AppMapLatLng,
@@ -80,10 +81,33 @@ export const AppMap = memo(forwardRef<AppMapHandle, AppMapProps>(
             coordinate={m.coordinate}
             title={m.title}
             description={m.description}
-            pinColor={m.color}
-          />
+            anchor={m.variant === 'note' ? { x: 0.5, y: 0.5 } : undefined}
+          >
+            {m.variant === 'note' ? (
+              <View style={[styles.noteBadge, { borderColor: m.color }]}>
+                <Text style={styles.noteEmoji}>{m.emoji ?? '⚠️'}</Text>
+              </View>
+            ) : null}
+          </Marker>
         ))}
       </MapView>
     );
   },
 ));
+
+const styles = StyleSheet.create({
+  noteBadge: {
+    width: 27,
+    height: 27,
+    borderRadius: 9,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0a141e',
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  noteEmoji: { fontSize: 15 },
+});

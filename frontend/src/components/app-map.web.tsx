@@ -36,6 +36,8 @@ export const AppMap = memo(forwardRef<AppMapHandle, AppMapProps>(
           color: m.color,
           title: m.title,
           description: m.description,
+          variant: m.variant,
+          emoji: m.emoji,
         }))}
         onPick={props.onPressPick}
       />
