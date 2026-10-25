@@ -6,11 +6,12 @@
 //  2. The LAN IP the phone reached Metro via (Expo manifest hostUri), so a
 //     default `npx expo start` works on physical devices with zero setup
 //  3. localhost (simulator / web)
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 
 const DEV_FALLBACK = "http://localhost:8100";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 const PREFS_KEY = "stryde:prefs";
+
 function resolveBaseUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_URL;
   if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/+$/, "");
