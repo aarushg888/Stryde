@@ -115,6 +115,19 @@ export const api = {
     return res.json();
   },
 
+  async getPreferences(): Promise<Record<string, unknown>> {
+    const res = await request("/preferences");
+    return res.json();
+  },
+
+  async savePreferences(prefs: Record<string, unknown>): Promise<void> {
+    await request("/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(prefs),
+    });
+  },
+
   async coverage(
     area: "demo" | "test" | "nova",
   ): Promise<GeoJSON.FeatureCollection> {

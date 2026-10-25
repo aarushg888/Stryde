@@ -23,7 +23,12 @@ const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 export type LeafletBoot = {
   scheme?: LeafletScheme;
   center?: [number, number];
-  route?: [number, number][]; // [lat,lng] polyline vertices
+  route?: [number, number][]; // [lat,lng] polyline vertices (single route)
+  routes?: {
+    coords: [number, number][];
+    color: string;
+    selected?: boolean;
+  }[]; // multi-route rendering (selected draws haloed & bold)
   markers?: {
     point: [number, number]; // [lat,lng]
     color: string;
@@ -61,11 +66,26 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '  var markerLayer = L.layerGroup().addTo(map);',
     '  function isDark(){ return document.body.classList.contains("dark"); }',
     '  function applyScheme(scheme){ document.body.classList.toggle("dark", scheme === "dark"); }',
-    '  function setRoute(coords){',
+    '  function setRoutes(st){',
     '    routeLayer.clearLayers();',
-    '    if (coords && coords.length > 1){',
-    '      L.polyline(coords, {color:"rgba(255,255,255,0.85)", weight:7, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
-    '      L.polyline(coords, {color: isDark() ? "#2ecc71" : "#27ae60", weight:4, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
+    '    var single = st.route && st.route.length > 1 ? [{coords: st.route, color: isDark() ? "#2ecc71" : "#27ae60", selected: true}] : null;',
+    '    var lines = st.routes && st.routes.length ? st.routes : single;',
+    '    if (!lines) return;',
+    '    var hasAny = false;',
+    '    lines.forEach(function(line){',
+    '      var coords = line.coords;',
+    '      if (!coords || coords.length < 2) return;',
+    '      hasAny = true;',
+    '      if (line.selected){',
+    '        L.polyline(coords, {color:"rgba(255,255,255,0.85)", weight:7, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
+    '        L.polyline(coords, {color:line.color, weight:4, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
+    '      } else {',
+    '        L.polyline(coords, {color:line.color, weight:3, opacity:0.85, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);',
+    '      }',
+    '    });',
+    '    if (hasAny){',
+    '      var fitTo = st.routes && st.routes.length ? (lines.filter(function(l){return l.selected;})[0] || lines[0]).coords : st.route;',
+    '      fit(fitTo);',
     '    }',
     '  }',
     '  function setMarkers(markers){',
@@ -87,11 +107,18 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '  function applyState(st){',
     '    if (!st) return;',
     '    applyScheme(st.scheme);',
-    '    setRoute(st.route);',
+    '    setRoutes(st);',
     '    setMarkers(st.markers);',
-    '    if (st.route && st.route.length > 1) fit(st.route);',
-    '    else map.setView(st.center || [38.9137, -77.0325], 15);',
+    '    if ((st.route && st.route.length > 1) || (st.routes && st.routes.length)) return;',
+    '    map.setView(st.center || [38.9137, -77.0325], 15);',
     '  }',
+    '  map.on("click", function(ev){',
+    '    try{',
+    '      if (window.parent){',
+    '        window.parent.postMessage({type:"pick", point:[ev.latlng.lat, ev.latlng.lng]}, "*");',
+    '      }',
+    '    } catch (err) {}',
+    '  });',
     '  function onMsg(ev){',
     '    try{',
     '      var msg = typeof ev.data === "string" ? JSON.parse(ev.data) : ev.data;',

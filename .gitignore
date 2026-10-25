@@ -20,7 +20,9 @@ backend/ml/aerial/cache/
 backend/ml/street/.env
 backend/ml/street/data/
 backend/ml/street/runs/
-backend/ml/street/weights/
+# trained YOLO weights ARE runtime-critical; commit best.pt explicitly
+backend/ml/street/weights/*
+!backend/ml/street/weights/best.pt
 
 # qa candidate dumps (regenerable via osm_metrics --dump-new-edges)
 backend/ml/aerial/qa/*_all.geojson
@@ -28,5 +30,13 @@ backend/ml/aerial/qa/*_all.geojson
 # tile2net local artifacts (clone is tracked, these are not)
 backend/tile2net/runs/
 backend/tile2net/uv.lock
-*.pt
 backend/tile2net/output/
+
+# data dir: runtime files are tracked; user uploads + big raws are not
+data/hazard_photos/
+data/user_hazards.csv
+backend/cache/
+
+# editor noise
+.vscode/
+

@@ -192,7 +192,8 @@ NO_PATH_NEARBY = (
 
 @app.get("/")
 def root():
-    return {"message": "Stryde MVP API", "routes": ["/search", "/coverage", "/detect", "/health"]}
+    return {"message": "Stryde MVP API",
+            "routes": ["/search", "/coverage", "/detect", "/health", "/chat", "/report", "/preferences"]}
 
 
 def _haversine(a, b):
@@ -234,12 +235,12 @@ def cost_spec_caller(start: str, goal: str, s_cands, g_cands, cost_spec):
         except ValueError:
             pass
 
-    geometry = [s_point]
+    geometry = [p for p in ([s_point] if s_point else [])]
     for n in path:
         ll = latlngs.get(n)
         if ll:
             geometry.append(ll)
-    geometry += [g_point]
+    geometry += [p for p in ([g_point] if g_point else [])]
     geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
     if s_used is None or g_used is None:
         return None
@@ -302,6 +303,8 @@ except Exception as e:
     tree = None
 
 def get_incident_score(ll,cost_spec):
+    if tree is None:
+        return 0  # crash layer unavailable (fresh clone) — routing still works
     idx = tree.query_ball_point(to_xy(ll[0], ll[1]), r=20)
     if not idx:
         return 0
@@ -344,3 +347,85 @@ def get_prefs():
 def set_prefs(prefs: dict):
     with open(USER_PREFS, 'w') as f: json.dump(prefs, f)
     return prefs
+
+
+# --- Route assistant --------------------------------------------------------
+# Deterministic, rules-based assistant (no external AI service): it answers
+# questions about how Stryde builds safe walking routes using the caller's
+# current preference snapshot as context. Runs fully offline so the feature
+# works even without network access on the judging machine.
+
+class ChatRequest(BaseModel):
+    message: str = ""
+    routingMode: str = "standard"
+    preferSidewalks: bool = True
+    wellLitOnly: bool = False
+    lowTraffic: bool = False
+    avoidObstacles: bool = True
+
+
+def _prefs_line(p: ChatRequest) -> str:
+    mode = "wheelchair / accessible" if p.routingMode == "wheelchair" else "standard pedestrian"
+    flags = [
+        name for name, on in (("prefer sidewalks", p.preferSidewalks),
+                              ("low-traffic streets", p.lowTraffic),
+                              ("well-lit streets", p.wellLitOnly),
+                              ("protected crossings", p.avoidObstacles)) if on
+    ]
+    return f"{mode}" + (", prioritizing " + ", ".join(flags) if flags else "")
+
+
+_INTENTS: list[tuple[tuple[str, ...], str]] = [
+    (("how do routes work", "how does stryde work", "how does it work", "how routing", "algorithm"),
+     "Stryde searches the DC sidewalk graph with A* under three cost profiles - Safest "
+     "(harsh penalties for crossings, unmarked walk space and crash clusters), Balanced, "
+     "and Shortest (pure distance). Each return trip is scored, drawn on the map, and you "
+     "pick the trade-off you want."),
+    (("what do you detect", "what can you detect", "hazard", "camera", "photo", "detect"),
+     "Our YOLO street-barrier model flags five classes from a photo: curb ramps, "
+     "crosswalks, tactile paving, stairs/steps and ramps. Upload from the Safeguard tab to "
+     "verify a barrier, then hit Report to add it to the shared hazard map."),
+    (("wheelchair", "accessible", "accessibility mode", "wheel chair"),
+     "Wheelchair mode is one of our routing access modes. Pair it with Prefer sidewalks "
+     "and Protected crossings and choose the Safest profile - it weights unmarked crossings "
+     "and missing walk space so steep or stepped segments get avoided."),
+    (("night", "light", "dark", "evening"),
+     "Evening planners: enable Enhanced Safety Lighting, and the Safest profile will keep "
+     "you on crossings and corridors we can score for vehicle and pedestrian danger."),
+    (("traffic", "car", "vehicles", "noisy"),
+     "Low Traffic Exposure steers you away from arterial roads. Crash clusters within "
+     "20 m of a crossing contribute real DC crash counts (vehicles, bicycles, "
+     "pedestrians, fatalities) to the route cost."),
+    (("crash", "incident", "dangerous", "unsafe", "safety"),
+     "Stryde blends the reported-barrier graph with DC Open Data crash records: crashes "
+     "within 20 meters of a crossing add weighted danger to every edge, so the Safest "
+     "route detours around statistically risky intersections."),
+    (("coverage", "where does", "which area", "region", "district"),
+     "We cover the DC sidewalk network around Logan Circle today; the coverage grows "
+     "with every graph refresh. Routes snap your pin to the nearest walk node within "
+     "400 meters."),
+    (("report", "contribute", "add hazard", "upload"),
+     "From the Safeguard tab: snap a photo, the model tags the barrier class, drop a "
+     "description and the pin stores into our shared hazard layer for everyone's next "
+     "route."),
+    (("preference", "settings", "configure", "tune"),
+     "In Preferences you can set the Routing Access Mode (standard or wheelchair) and "
+     "path, crossings, lighting and traffic flags. Your current setup: {prefs}"),
+    (("hello", "hi", "hey", "what can you do", "help"),
+     "I can explain Stryde routing, hazards, coverage and privacy in this demo. Right "
+     "now your filters are: {prefs}. Ask me 'how do routes work?' to get started."),
+]
+
+
+@app.post("/chat")
+def chat(req: ChatRequest):
+    text = req.message.strip().lower()
+    if text:
+        for keys, reply in _INTENTS:
+            if any(k in text for k in keys):
+                return {"reply": reply.replace("{prefs}", _prefs_line(req))}
+        return {"reply": "Great question - in this demo the assistant covers routing, "
+                "hazards, coverage and privacy. Your filters are: " + _prefs_line(req) +
+                ". Ask 'how do routes work?' to see the details."}
+    return {"reply": "Ask me anything about Stryde - e.g. 'how do routes work?' "
+            "(Your filters: " + _prefs_line(req) + ")"}

@@ -25,48 +25,18 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import { AppMap } from "@/components/app-map";
+import type { AppMapHandle } from "@/components/app-map-types";
 import { SafeAreaView } from "react-native-safe-area-context";
-// MVP coverage area kept in sync with the backend's built graph (Logan Circle).
-const DC_REGION = {
-  latitude: 38.9137,
-  longitude: -77.0325,
-  latitudeDelta: 0.012,
-  longitudeDelta: 0.012,
-};
-const DEMO_START = "38.9131,-77.0305";
-const DEMO_GOAL = "38.9184,-77.0248";
+import { usePlaceSearch } from "@/hooks/use-place-search";
+import { DC_REGION, parseLatLng } from "@/utils/geo";
+
 const ROUTE_META = [
   { title: "Safest route", tag: "Recommended", color: "#2ecc71" },
   { title: "Balanced route", tag: "Moderate risk", color: "#f1c40f" },
   { title: "Shortest route", tag: "Higher risk", color: "#e74c3c" },
 ] as const;
 const WALK_SPEED_KMH = 4.5;
-
-function parseLatLng(
-  value: string,
-): { latitude: number; longitude: number } | null {
-  const parts = value.split(",").map((part) => part.trim());
-
-  if (parts.length !== 2) return null;
-
-  const latitude = Number(parts[0]);
-  const longitude = Number(parts[1]);
-
-  if (
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude) ||
-    latitude < -90 ||
-    latitude > 90 ||
-    longitude < -180 ||
-    longitude > 180
-  ) {
-    return null;
-  }
-
-  return { latitude, longitude };
-}
-
 export default function HomeScreen() {
   const scheme = useColorScheme();
   const colors = Colors[scheme === "dark" ? "dark" : "light"];
@@ -88,7 +58,7 @@ export default function HomeScreen() {
   >("checking");
   const { height: windowHeight } = useWindowDimensions();
   const [plannerExpanded, setPlannerExpanded] = useState(false);
-  const mapRef = React.useRef<MapView>(null);
+  const mapRef = React.useRef<AppMapHandle>(null);
   const [mapPickMode, setMapPickMode] = useState<
     "start" | "destination" | null
   >(null);
@@ -226,16 +196,17 @@ export default function HomeScreen() {
   // const routeCoords = route?.geometry?.length
   //   ? route.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng }))
   //   : [];
-  type PlaceSuggestion = {
-    name: string;
-    city?: string;
-    administrative?: string;
-    lat: number;
-    lng: number;
-  };
-
-  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
-  const [searching, setSearching] = useState(false);
+  // Debounced place search shared by both inputs (start & destination).
+  const activeQuery =
+    mode === "select-destination"
+      ? destination
+      : mode === "select-start"
+        ? startLocation
+        : "";
+  const { suggestions, searching, clearSuggestions } = usePlaceSearch(
+    activeQuery,
+    mode === "select-destination" || mode === "select-start",
+  );
   const [alternateRoutes, setAlternateRoutes] = useState(false);
   const updateStartLocation = (value: string) => {
     if (value.length > 15) {
@@ -253,129 +224,19 @@ export default function HomeScreen() {
     setAlternateRoutes(false);
     setGenerateRoutes(true);
   };
-  useEffect(() => {
-    if (mode !== "select-start" || startLocation.trim().length < 3) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    const timeout = setTimeout(async () => {
-      setSearching(true);
-
-      try {
-        const response = await fetch("https://api.placekit.co/search", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-placekit-api-key": process.env.EXPO_PUBLIC_PLACEKIT_KEY!,
-          },
-          body: JSON.stringify({
-            query: startLocation,
-            countries: ["us"],
-            coordinates: `${DC_REGION.latitude},${DC_REGION.longitude}`,
-            maxResults: 5,
-          }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`PlaceKit error: ${response.status}`);
-        }
-
-        const data: { results: PlaceSuggestion[] } = await response.json();
-
-        if (!controller.signal.aborted) {
-          setSuggestions(data.results);
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          console.error("PlaceKit autocomplete:", error);
-          setSuggestions([]);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setSearching(false);
-        }
-      }
-    }, 300);
-
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [startLocation, mode]);
-  useEffect(() => {
-    if (mode !== "select-destination" || destination.trim().length < 3) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    const timeout = setTimeout(async () => {
-      setSearching(true);
-
-      try {
-        const response = await fetch("https://api.placekit.co/search", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-placekit-api-key": process.env.EXPO_PUBLIC_PLACEKIT_KEY!,
-          },
-          body: JSON.stringify({
-            query: destination,
-            countries: ["us"],
-            coordinates: `${DC_REGION.latitude},${DC_REGION.longitude}`,
-            maxResults: 5,
-          }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`PlaceKit error: ${response.status}`);
-        }
-
-        const data: { results: PlaceSuggestion[] } = await response.json();
-
-        if (!controller.signal.aborted) {
-          setSuggestions(data.results);
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          console.error("PlaceKit autocomplete:", error);
-          setSuggestions([]);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setSearching(false);
-        }
-      }
-    }, 300);
-
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [destination, mode]);
-
   return (
     <ThemedView style={styles.container}>
       {(mode == "initial" || mode == "done") && (
         <View
           style={[styles.mapCard, { borderColor: colors.backgroundElement }]}
         >
-          <MapView
+          <AppMap
             ref={mapRef}
-            focusable
             style={styles.map}
             initialRegion={DC_REGION}
-            showsUserLocation={false}
-            showsMyLocationButton={false}
-            toolbarEnabled={false}
-            onPress={({ nativeEvent }) => {
+            onPressPick={(latitude, longitude) => {
               if (!mapPickMode) return;
 
-              const { latitude, longitude } = nativeEvent.coordinate;
               const coordinates = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
 
               if (mapPickMode === "destination") {
@@ -388,53 +249,30 @@ export default function HomeScreen() {
               setPlannerExpanded(true);
               setMapPickMode(null);
             }}
-          >
-            {routeCoords && routes && (
-              <View>
-                <Polyline
-                  coordinates={routeCoords[curr]}
-                  strokeWidth={7}
-                  strokeColor="rgba(255,255,255,0.85)"
-                  lineCap="round"
-                  lineJoin="round"
-                />
-                <Polyline
-                  coordinates={routeCoords[curr]}
-                  strokeWidth={4}
-                  strokeColor={"#2ecc71"}
-                  lineCap="round"
-                  lineJoin="round"
-                />
-                {/* <Marker
-                  coordinate={routeCoord[0]}
-                  title="Start"
-                  description={routes.paths[i].start_node}
-                  pinColor={"#2ecc71"}
-                />
-                <Marker
-                  coordinate={routeCoord[routeCoord.length - 1]}
-                  title="Destination"
-                  description={routes.paths[i].goal_node}
-                  pinColor="#e74c3c"
-                /> */}
-              </View>
-            )}
-            {destinationCoordinate && (
-              <Marker
-                coordinate={destinationCoordinate}
-                title="Destination"
-                pinColor="#e74c3c"
-              />
-            )}
-
-            {startCoordinate && (
-              <Marker
-                coordinate={startCoordinate}
-                title="Start"
-                pinColor="#2ecc71"
-              />
-            )}
-          </MapView>
+            routes={
+              routeCoords && routes
+                ? routeCoords.map((coordinates, i) => ({
+                    coordinates,
+                    color: ROUTE_META[Math.min(i, ROUTE_META.length - 1)].color,
+                    selected: i === curr,
+                  }))
+                : undefined
+            }
+            markers={[
+              ...(destinationCoordinate
+                ? [
+                    {
+                      coordinate: destinationCoordinate,
+                      title: "Destination",
+                      color: "#e74c3c",
+                    },
+                  ]
+                : []),
+              ...(startCoordinate
+                ? [{ coordinate: startCoordinate, title: "Start", color: "#2ecc71" }]
+                : []),
+            ]}
+          />
         </View>
       )}
       {(mode == "select-destination" || mode == "select-start") && (
@@ -478,8 +316,8 @@ export default function HomeScreen() {
                       : 0,
                 }}
                 onPress={() => {
-                  // inputRef.current?.blur();
-                  // inputRef2.current?.blur();
+                  // (inputRef.current as unknown as { blur?(): void })?.blur?.();
+                  // (inputRef2.current as unknown as { blur?(): void })?.blur?.();
                   Keyboard.dismiss();
                   setMode("initial");
                 }}
@@ -570,9 +408,9 @@ export default function HomeScreen() {
                       setGenerateRoutes(true);
                       setDestination(value);
                       setDestinationCoords(`${item.lat},${item.lng}`);
-                      setSuggestions([]);
+                      clearSuggestions();
 
-                      inputRef.current?.blur();
+                      (inputRef.current as unknown as { blur?(): void })?.blur?.();
                       Keyboard.dismiss();
                       setMode("initial");
                       // if (firstState) {
@@ -619,9 +457,9 @@ export default function HomeScreen() {
                       setGenerateRoutes(true);
                       setStartLocation(value);
                       setStartLocationCoords(`${item.lat},${item.lng}`);
-                      setSuggestions([]);
+                      clearSuggestions();
 
-                      // inputRef2.current?.blur();
+                      // (inputRef2.current as unknown as { blur?(): void })?.blur?.();
                       // Keyboard.dismiss();
                       setMode("select-destination");
 
@@ -827,7 +665,13 @@ export default function HomeScreen() {
         <View style={{ flex: 1, justifyContent: "flex-end" }}>
           {/* Tap outside the sheet to dismiss */}
           <Pressable
-            style={StyleSheet.absoluteFillObject}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+            }}
             onPress={() => setRoutesVisible(false)}
           />
 
@@ -1062,7 +906,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     minHeight: "100%",
     backgroundColor: "black",
-    transition: "background-color 0.3s ease",
   },
   plannerHeaderRow: {
     flexDirection: "row",

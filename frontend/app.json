@@ -21,7 +21,7 @@
       "package": "com.anonymous.Stryde"
     },
     "web": {
-      "output": "server",
+      "output": "client",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [

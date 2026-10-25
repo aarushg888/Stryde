@@ -2,7 +2,7 @@ import { api } from "@/api/api";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Colors, Spacing } from "@/constants/theme";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -22,17 +22,75 @@ interface Message {
   sender: "user" | "ai";
 }
 
+type Prefs = {
+  routingMode: RoutingMode;
+  preferSidewalks: boolean;
+  wellLitOnly: boolean;
+  lowTraffic: boolean;
+  avoidObstacles: boolean;
+};
+
+const DEFAULT_PREFS: Prefs = {
+  routingMode: "standard",
+  preferSidewalks: true,
+  wellLitOnly: false,
+  lowTraffic: false,
+  avoidObstacles: true,
+};
+
 export default function PreferencesScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const colors = Colors[isDark ? "dark" : "light"];
 
   // User Preference State Management Hooks
-  const [routingMode, setRoutingMode] = useState<RoutingMode>("standard");
-  const [preferSidewalks, setPreferSidewalks] = useState(true);
-  const [wellLitOnly, setWellLitOnly] = useState(false);
-  const [lowTraffic, setLowTraffic] = useState(false);
-  const [avoidObstacles, setAvoidObstacles] = useState(true);
+  const [routingMode, setRoutingMode] = useState<RoutingMode>(
+    DEFAULT_PREFS.routingMode,
+  );
+  const [preferSidewalks, setPreferSidewalks] = useState(
+    DEFAULT_PREFS.preferSidewalks,
+  );
+  const [wellLitOnly, setWellLitOnly] = useState(DEFAULT_PREFS.wellLitOnly);
+  const [lowTraffic, setLowTraffic] = useState(DEFAULT_PREFS.lowTraffic);
+  const [avoidObstacles, setAvoidObstacles] = useState(
+    DEFAULT_PREFS.avoidObstacles,
+  );
+
+  // Persistence: hydrate from the backend profile, then push every change.
+  const hydrated = useRef(false);
+  useEffect(() => {
+    api
+      .getPreferences()
+      .then((saved) => {
+        if (typeof saved.routingMode === "string") {
+          setRoutingMode(saved.routingMode === "wheelchair" ? "wheelchair" : "standard");
+        }
+        if (typeof saved.preferSidewalks === "boolean") setPreferSidewalks(saved.preferSidewalks);
+        if (typeof saved.wellLitOnly === "boolean") setWellLitOnly(saved.wellLitOnly);
+        if (typeof saved.lowTraffic === "boolean") setLowTraffic(saved.lowTraffic);
+        if (typeof saved.avoidObstacles === "boolean") setAvoidObstacles(saved.avoidObstacles);
+      })
+      .catch(() => {
+        /* first run or backend offline — defaults are fine */
+      })
+      .finally(() => {
+        hydrated.current = true;
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    const prefs: Prefs = {
+      routingMode,
+      preferSidewalks,
+      wellLitOnly,
+      lowTraffic,
+      avoidObstacles,
+    };
+    api.savePreferences(prefs).catch(() => {
+      /* retry on the next change */
+    });
+  }, [routingMode, preferSidewalks, wellLitOnly, lowTraffic, avoidObstacles]);
 
   // Chatbot State Management Hooks
   const [messages, setMessages] = useState<Message[]>([

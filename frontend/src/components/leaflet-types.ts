@@ -24,11 +24,19 @@ export type LeafletEdgePadding = {
   left: number;
 };
 
+export type LeafletRouteLine = {
+  coords: LeafletLatLng[];
+  color: string;
+  selected?: boolean;
+};
+
 export type LeafletMapProps = {
   scheme?: LeafletScheme;
   region?: LeafletRegion;
   routeCoordinates?: LeafletLatLng[];
+  routes?: LeafletRouteLine[];
   markers?: LeafletMarkerSpec[];
+  onPick?: (lat: number, lng: number) => void;
 };
 
 export type LeafletMapHandle = {
