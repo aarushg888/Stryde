@@ -1,100 +1,87 @@
-# Check your emails guys
+# Stryde — accessible pedestrian routing
 
-# Stryde an accessible pedestrian routing app
+Stryde plans walking routes the way people actually move: it searches the real
+DC sidewalk graph under **three cost profiles** (Safest / Balanced / Shortest),
+weights every unmarked crossing and open-road segment with **five years of DC
+Open Data crash records**, and lets anyone **report street hazards** — backed
+by a YOLO street-barrier detector (curb ramps, crosswalks, tactile paving,
+stairs/steps, ramps) that verifies the photo before it enters the shared map.
 
-Stryde routes pedestrians — especially wheelchair and low-visibility users —
-using **two ML layers** over real data:
+One FastAPI backend serves the routing, the detector and the community hazard
+layer. One Expo (React Native / web) app consumes it.
 
-- **Aerial layer** (shipped): Tile2Net visual inference of sidewalks/crosswalks
-  over orthoimagery + OSM fusion (Logan Circle DC, test area, NoVA Clarendon).
-- **Street layer** (warming up): YOLO11s street-barrier detector over
-  participant photos (curb ramps, crosswalks, tactile paving, stairs/steps,
-  ramps).
+## Repo layout
 
-One backend serves both; one Expo app (React Native) consumes it.
-
-## Quickstart
-
-### 1. Backend (FastAPI, one process)
-
-```bash
-./scripts/run_backend.sh                     # FastAPI on :8100 (replaces the line below)
-# backend/tile2net/.venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8100
-# health:      curl http://localhost:8100/health
-# route:       curl "http://localhost:8100/search?start=n0&goal=n100"
-#              (start/goal accept graph node ids OR "lat,lng")
-# coverage:    curl "http://localhost:8100/coverage?area=demo"
-# detect:      curl -F file=@photo.jpg -F conf=0.25 http://localhost:8100/detect
+```
+backend/            FastAPI app  (main.py) + ml/street YOLO detector
+data/osm/pickle/    pre-built DC walk graph (183k nodes as [lat,lng])
+data/Crashes_in_DC.csv  2021–2026 DC crash records used for incident scoring
+frontend/           Expo Router app: Map (routing) · Hazards · Preferences
+scripts/run_backend.sh
 ```
 
-`/search` runs A\* over the real router graph (3 535 nodes / 3 401 tubes built
-from aerial inference) and returns node ids, cost in meters, a
-`geometry` lat/lng polyline, snap distances and — for "lat,lng" inputs —
-`straight_m` (crow-flies) and `ratio` (route ÷ straight line). Nearest nodes
-on both ends are tried in pairs until a connected route exists, and the
-polyline starts/ends at the exact coordinates you entered. `/detect` 503s
-with a clear message until the detector weights finish training (section 3).
+## Quickstart (2 terminals)
 
-Smoke tests (zero dependencies, spawns its own uvicorn on :8199):
+**Backend** — Python 3.11+:
 
 ```bash
-backend/tile2net/.venv/bin/python backend/tests/test_api.py   # 13 checks
+python -m venv .venv && . .venv/bin/activate
+pip install -r backend/requirements.txt
+pip install ultralytics            # detector engine (torch not in requirements)
+./scripts/run_backend.sh           # uvicorn backend.main:app --host 0.0.0.0 --port 8100
+curl localhost:8100/health         # -> {"ok":true,"weights":"detected",...}
 ```
 
-### 2. Frontend (Expo app)
+All runtime data ships in-tree (`data/osm/pickle/*.pkl`, `best.pt`, crash CSV),
+so a fresh clone works offline — no Overpass calls, no model training.
+
+**Frontend** — Node 18+:
 
 ```bash
-cd frontend && npm install && npx expo start
+cd frontend
+npm install
+npx expo start --web     # http://localhost:8081  (web)
+# npx expo start         # iOS/Android dev flow (map uses react-native-maps)
 ```
 
-- Web/iOS-sim: works with the backend on `localhost:8100`.
-- Phone: same Wi-Fi, then `EXPO_PUBLIC_API_URL=http://<mac-lan-ip>:8100 npx expo start`.
-- Screens: **Home** (map + safer-route search, draws the real route polyline),
-  **Report a Hazard** (attach a photo — analyzed by `/detect`; shows
-  per-class counts on submit), **Explore** (route options UI), **Preferences**.
+The browser hits `http://localhost:8100` automatically; phones on the same
+Wi‑Fi resolve to the Metro host instead. Override with
+`EXPO_PUBLIC_API_URL=http://<ip>:8100`.
 
-### 3. Finish detector training (weights pending)
+## Try it
 
-Current status: YOLO11s 5-class detector, dataset built (9 993 unique images,
-stratified 80/10/10, ramp oversampled), MPS probe 774 s/epoch → **Colab
-run** required:
+1. Type a start (e.g. **Logan Circle**) and a destination (e.g. **Dupont
+   Circle**) — address search uses PlaceKit when
+   `EXPO_PUBLIC_PLACEKIT_KEY` is set, Nominatim/OSM otherwise.
+2. **Find Routes** — three color-coded routes appear on the Leaflet map
+   (web) / react-native-maps (native).
+3. **View Alternate Routes** to swap profiles, or open **Hazards** to detect
+   and report a barrier, or **Preferences** to pick wheelchair mode and
+   safety flags (persisted server-side via `/preferences`, consulted by the
+   rules-based `/chat` assistant).
 
-1. Open `backend/ml/street/train_colab.ipynb` in Google Colab, GPU runtime.
-2. Run all cells (~1.5–3 h on T4); it fetches datasets, builds, trains,
-   evaluates val+test into `street.json`, exports ONNX, and downloads
-   `weights_payload.zip`.
-3. `unzip weights_payload.zip -d .` at the repo root — files land in
-   `backend/ml/street/{weights,metrics,samples}` — then restart the backend.
+## API surface
 
-Until then `/detect` returns HTTP 503 _"warming up"_, and the app still
-lets you file the hazard report (AI step is optional).
+| Route | Purpose |
+| --- | --- |
+| `GET /health` | graph + detector weight status, coverage list |
+| `GET /search?start=&goal=` | 3 A* routes, snapped to nearest walk node |
+| `GET /coverage?area=` | demo/NoVA/test footprints |
+| `POST /detect` | YOLO barrier classes + confidence for an uploaded photo |
+| `POST /report` | community hazard (type, lat/lng, description, photo) |
+| `GET/POST /preferences` | persisted routing-mode + safety flags |
+| `POST /chat` | rules-based route assistant (offline, deterministic) |
 
-## Repo map
+## Testing / typecheck
 
-| Path                           | What                                                                                                                                          |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/main.py`              | MVP API: A\* `/search` (+ toy-graph fallback), `/coverage`, `/detect`, `/health`, CORS                                                        |
-| `backend/graph.py`             | Tile2Net generate+inference runner (e.g. Boston Common)                                                                                       |
-| `backend/ml/aerial/`           | tile2net conversion, OSM fusion metrics, connectivity healing, QA, router-graph builder; details in `backend/ml/aerial/README.md`             |
-| `backend/ml/street/`           | dataset build (Roboflow v10/v1/v2 + Zenodo 6382090), training/eval/detect scripts, Colab notebook; details in `backend/ml/street/DATASETS.md` |
-| `backend/ml/FINAL_REPORT.md`   | full ML report: contract change, metrics, decision log                                                                                        |
-| `data/router_graph/`           | router handoff: `graphs[0]`=adjacency, `graphs[1]`=(n1,n2)→meters, `meta.node_latlng`                                                         |
-| `data/*_area_inferred.geojson` | aerial inference contract outputs (demo/test/nova)                                                                                            |
-| `frontend/src/app/`            | Expo Router screens                                                                                                                           |
+```bash
+cd frontend && npx tsc --noEmit && npx expo lint
+```
 
-## Notes & caveats
+## Data attribution
 
-- **Centerline contract changed**: kinds are now
-  `sidewalk|crosswalk|footpath|connector` (no `sidewalk_connection`).
-- **Repo-local tile2net**: `backend/tile2net` is tracked (203 source files)
-  with the Virginia imagery-server patch applied in
-  `backend/tile2net/src/tile2net/raster/source.py`; local `.venv`/outputs stay
-  ignored.
-- **Router graph connectivity**: 220 components (largest 1 622 nodes).
-  `/search` returns 404 with guidance when start/goal are in different
-  components; see `backend/ml/aerial/connectivity.py` for healing stats.
-- Known UI issues inherited from the merged UI branch: pre-existing TS errors
-  in `explore.tsx`, `app-tabs.tsx`, css-module import (cosmetric at runtime).
-- Branch history: the earlier `ML-v1` remote was rewritten with
-  backends/`idk` commits; the complete ML lineage is preserved on
-  `origin/ml-v1-archive` and merged into `main`.
+- Sidewalk graph: OpenStreetMap via osmnx (tiles © OpenStreetMap contributors).
+- Crash layer: DC Open Data “Crashes in DC” (2021–2026), columns used for
+  scoring only.
+- Detector: custom YOLO11s model trained on community street photos —
+  sample detection shipped at `backend/ml/street/samples/demo_curb_ramp.jpg`.
