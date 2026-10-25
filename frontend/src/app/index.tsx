@@ -372,22 +372,6 @@ export default function HomeScreen() {
             showsUserLocation={false}
             showsMyLocationButton={false}
             toolbarEnabled={false}
-            onPress={({ nativeEvent }) => {
-              if (!mapPickMode) return;
-
-              const { latitude, longitude } = nativeEvent.coordinate;
-              const coordinates = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
-
-              if (mapPickMode === "destination") {
-                setDestination(coordinates);
-              } else {
-                setStartLocation(coordinates);
-              }
-
-              clearRoute();
-              setPlannerExpanded(true);
-              setMapPickMode(null);
-            }}
           >
             {routeCoords && routes && (
               <View>
@@ -874,17 +858,6 @@ export default function HomeScreen() {
                     key={`route-${i}`}
                     onPress={() => {
                       setCurr(i);
-                      if (routeCoords?.[i]?.length) {
-                        mapRef.current?.fitToCoordinates(routeCoords[i], {
-                          edgePadding: {
-                            top: 120,
-                            right: 60,
-                            bottom: windowHeight * 0.6,
-                            left: 60,
-                          },
-                          animated: true,
-                        });
-                      }
                     }}
                     style={{
                       flexDirection: "row",
