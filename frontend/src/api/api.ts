@@ -9,7 +9,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 
-const DEV_FALLBACK = "http://localhost:8100";
+const DEV_FALLBACK = "http://192.168.1.18:8100";
 const PREFS_KEY = "stryde:prefs";
 
 function resolveBaseUrl(): string {

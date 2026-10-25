@@ -455,8 +455,36 @@ export default function HomeScreen() {
       </View>
     ) : null;
 
-  const renderRoutesCard = () =>
-    routes && routeCoords ? (
+const renderCta = () =>
+  routes && routeCoords ? null : (
+    <TouchableOpacity
+      style={[
+        styles.cta,
+        styles.frost,
+        styles.ctaSolid,
+        (finding || !startSet || !destSet) && { opacity: 0.55 },
+      ]}
+      onPress={runSearch}
+      disabled={finding || !startSet || !destSet}
+      activeOpacity={0.8}
+    >
+      {finding ? (
+        <ActivityIndicator color="#0c1210" size="small" />
+      ) : (
+        <MaterialIcons name="directions-walk" size={19} color="#0c1210" />
+      )}
+      <Text style={styles.ctaText}>
+        {finding ? "Finding routes…" : "Find Routes"}
+      </Text>
+    </TouchableOpacity>
+  );
+
+const renderRoutesCard = () =>
+  routes && routeCoords ? (
+    <View
+      style={[styles.resultDock, wide && styles.resultDockWide]}
+      pointerEvents="box-none"
+    >
       <View style={[styles.resultCard, styles.frost]}>
         <View style={styles.resultHead}>
           <Text style={styles.resultTitle}>Your routes</Text>
@@ -485,9 +513,7 @@ export default function HomeScreen() {
                   },
                 ]}
               >
-                <View
-                  style={[styles.chipDot, { backgroundColor: meta.color }]}
-                />
+                <View style={[styles.chipDot, { backgroundColor: meta.color }]} />
                 <View style={styles.chipBody}>
                   <Text style={styles.chipTitle}>{meta.title}</Text>
                   <Text style={styles.chipMeta}>
@@ -500,26 +526,8 @@ export default function HomeScreen() {
           })}
         </View>
       </View>
-    ) : (
-      <TouchableOpacity
-        style={[styles.cta, styles.frost, styles.ctaSolid,
-          (finding || !startSet || !destSet) && { opacity: 0.55 },
-        ]}
-        onPress={runSearch}
-        disabled={finding || !startSet || !destSet}
-        activeOpacity={0.8}
-      >
-        {finding ? (
-          <ActivityIndicator color="#0c1210" size="small" />
-        ) : (
-          <MaterialIcons name="directions-walk" size={19} color="#0c1210" />
-        )}
-        <Text style={styles.ctaText}>
-          {finding ? "Finding routes…" : "Find Routes"}
-        </Text>
-      </TouchableOpacity>
-    );
-
+    </View>
+  ) : null;
   /** Drawer contents — subtab header + the active subtab's panel. */
   const renderDrawerBody = () => (
     <>
@@ -609,9 +617,10 @@ export default function HomeScreen() {
             ) : null}
             {renderPlanner()}
             {renderErrorCard()}
-            {renderRoutesCard()}
+            {renderCta()}
             {renderPickBanner()}
           </View>
+          {renderRoutesCard()}
 
           {/* Docked drawer (wide desktop layout) */}
           {wide && drawerOpen ? (
@@ -773,6 +782,17 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
   },
   ctaText: { color: "#0c1210", fontSize: 15.5, fontWeight: "800" },
+resultDock: {
+  position: "absolute",
+  left: Spacing.three,
+  right: Spacing.three,
+  bottom: Spacing.four + 2,
+},
+resultDockWide: {
+  left: Spacing.four,
+  right: 396,          // matches leftStackWide, clears the 356px drawer
+  maxWidth: 520,
+},
   resultCard: {
     padding: Spacing.three - 2,
   },
