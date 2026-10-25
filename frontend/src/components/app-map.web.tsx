@@ -24,7 +24,7 @@ export const AppMap = memo(forwardRef<AppMapHandle, AppMapProps>(
       <LeafletMap
         scheme="dark"
         region={props.initialRegion}
-        routes={(props.routes ?? []).filter((line)=>line.selected).map((line) => ({
+        routes={(props.routes ?? []).map((line) => ({
           coords: line.coordinates.map(
             (c): LeafletLatLng => [c.latitude, c.longitude],
           ),
