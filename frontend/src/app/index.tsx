@@ -1,6 +1,8 @@
 import { api, RouteResult, type HazardReport } from "@/api/api";
 import { AppMap } from "@/components/app-map";
 import type { AppMapHandle } from "@/components/app-map-types";
+import { HazardsPanel } from "@/components/hazards-panel";
+import { PreferencesPanel } from "@/components/preferences-panel";
 import { RouteSidebar } from "@/components/route-sidebar";
 import { ThemedView } from "@/components/themed-view";
 import { usePlaceSearch } from "@/hooks/use-place-search";
@@ -38,6 +40,14 @@ const HAZARD_EMOJI: Record<string, string> = {
   Other: "❗",
 };
 
+type DrawerTab = "route" | "hazards" | "prefs";
+
+const TAB_META: { id: DrawerTab; label: string; icon: keyof typeof MaterialIcons.glyphMap }[] = [
+  { id: "route", label: "Route", icon: "tune" },
+  { id: "hazards", label: "Hazards", icon: "report-problem" },
+  { id: "prefs", label: "Preferences", icon: "person" },
+];
+
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const wide = width >= 1024;
@@ -62,6 +72,8 @@ export default function HomeScreen() {
   const [hazards, setHazards] = useState<HazardReport[]>([]);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("route");
   const mapRef = React.useRef<AppMapHandle>(null);
 
   const startCoordinate = parseLatLng(startLocationCoords);
@@ -86,6 +98,27 @@ export default function HomeScreen() {
       setActiveField(null),
     );
     return sub.remove;
+  }, []);
+
+  // Community hazard layer for the map badges (refreshed after each submit).
+  const loadHazards = () => {
+    api
+      .listHazards(30)
+      .then((res) => setHazards(res.hazards))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .listHazards(30)
+      .then((res) => {
+        if (alive) setHazards(res.hazards);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const clearRoute = () => {
@@ -186,10 +219,7 @@ export default function HomeScreen() {
       setCurr(0);
       setLastUpdated(new Date().valueOf());
       mapRef.current?.fitToCoordinates(coordArr[0], {
-        edgePadding:
-          Platform.OS === "web"
-            ? { top: 170, right: 40, bottom: 220, left: 40 }
-            : { top: 170, right: 40, bottom: 220, left: 40 },
+        edgePadding: fitPadding(),
         animated: true,
       });
     } catch (e) {
@@ -199,11 +229,19 @@ export default function HomeScreen() {
     }
   };
 
+  const fitPadding = () => {
+    const pad = { top: 90, right: 40, bottom: 210, left: 40 };
+    if (Platform.OS === "web" && wide && drawerOpen && sheetOpen === false) {
+      pad.right = 380;
+    }
+    return { ...pad } as const;
+  };
+
   const selectRouteChip = (i: number) => {
     setCurr(i);
     if (routeCoords?.[i]) {
       mapRef.current?.fitToCoordinates(routeCoords[i], {
-        edgePadding: { top: 170, right: 40, bottom: 230, left: 40 },
+        edgePadding: fitPadding(),
         animated: true,
       });
     }
@@ -223,9 +261,9 @@ export default function HomeScreen() {
   const inputRows = (["start", "destination"] as const).map((field) => {
     const isStart = field === "start";
     const label = isStart ? startLocation : destination;
-    const hasCoords = isStart ? startSet : destSet;
-    const focused = activeField === field;
-    return { field, isStart, label, hasCoords, focused };
+    const scopedCoords = isStart ? startLocationCoords : destinationCoords;
+    const hasCoords = Boolean(parseLatLng(scopedCoords));
+    return { field, isStart, label, hasCoords, focused: activeField === field };
   });
 
   const hazardMarkers = hazards
@@ -296,218 +334,258 @@ export default function HomeScreen() {
     </View>
   );
 
-  // ---- Wide (>=1024px) three-column layout: planner | map | side panel ----
-  if (wide) {
-    return (
-      <ThemedView style={styles.container}>
-        <SafeAreaView style={styles.wideRow} edges={["top", "left", "right"]}>
-          {/* Left planner column */}
-          <View style={styles.wideLeft}>
-            <View style={styles.brandRow}>
-              <Text style={styles.brand}>Stryde</Text>
-              <Text style={styles.brandTag}>safe walks in DC</Text>
-            </View>
-            <View style={[styles.planner, styles.shadow, wide && styles.plannerWide]}>
-              {inputRows.map(({ field, isStart, label, focused }) => (
-                <View key={field}>
-                  <View style={[styles.inputRow, focused && { borderColor: "#22c55e" }]}>
-                    <View
-                      style={[
-                        styles.dot,
-                        { backgroundColor: isStart ? "#22c55e" : "#ef4444" },
-                      ]}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder={
-                        isStart
-                          ? "Start — address, GPS or map pin"
-                          : "Destination — address or map pin"
-                      }
-                      placeholderTextColor="#5b6b7b"
-                      value={label}
-                      onChangeText={(text) => {
-                        if (isStart) setStartLocation(text);
-                        else setDestination(text);
-                        clearRoute();
-                      }}
-                      onFocus={() => setActiveField(field)}
-                      onBlur={() =>
-                        setTimeout(() => {
-                          setActiveField((f) => (f === field ? null : f));
-                        }, 180)
-                      }
-                      onSubmitEditing={() => selectSuggestion(field, 0)}
-                      returnKeyType="search"
-                    />
-                    {isStart ? (
-                      <TouchableOpacity onPress={useMyLocation} hitSlop={8}>
-                        {gpsBusy ? (
-                          <ActivityIndicator color="#22c55e" size="small" />
-                        ) : (
-                          <MaterialIcons name="my-location" size={17} color="#22c55e" />
-                        )}
-                      </TouchableOpacity>
-                    ) : null}
-                    <TouchableOpacity
-                      onPress={() => {
-                        setMapPickMode(field);
-                        setActiveField(null);
-                        clearSuggestions();
-                      }}
-                      hitSlop={8}
-                    >
-                      <MaterialIcons name="map" size={17} color="#93c5fd" />
-                    </TouchableOpacity>
-                    {!isStart ? (
-                      <TouchableOpacity onPress={swapEnds} hitSlop={8}>
-                        <MaterialIcons name="swap-vert" size={17} color="#94a3b8" />
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                </View>
-              ))}
+  // ---- Shared pieces -------------------------------------------------------
 
-              {activeField && (searching || suggestions.length > 0) ? (
-                <View style={styles.suggestions}>
-                  {searching ? (
-                    <View style={styles.suggestionRow}>
-                      <ActivityIndicator color="#22c55e" size="small" />
-                      <Text style={styles.suggestionSub}>Searching…</Text>
-                    </View>
-                  ) : null}
-                  {suggestions.map((s, i) => (
-                    <Pressable
-                      key={`${s.lat},${s.lng},${i}`}
-                      style={styles.suggestionRow}
-                      onPress={() => selectSuggestion(activeField!, i)}
-                    >
-                      <MaterialIcons
-                        name="location-on"
-                        size={16}
-                        color={activeField === "start" ? "#22c55e" : "#ef4444"}
-                      />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.suggestionTitle}>{s.name}</Text>
-                        {!!(s.city || s.administrative) && (
-                          <Text style={styles.suggestionSub} numberOfLines={1}>
-                            {[s.city, s.administrative].filter(Boolean).join(", ")}
-                          </Text>
-                        )}
-                      </View>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
-            </View>
-
-            {routeError && !finding ? (
-              <View style={styles.errorCard}>
-                <MaterialIcons name="error-outline" size={15} color="#f87171" />
-                <Text style={styles.errorText} numberOfLines={2}>
-                  {routeError}
-                </Text>
-              </View>
-            ) : null}
-
-            {routes && routeCoords ? (
-              <View style={[styles.resultCard, styles.shadow]}>
-                <View style={styles.resultHead}>
-                  <Text style={styles.resultTitle}>Your routes</Text>
-                  <TouchableOpacity onPress={clearAll} hitSlop={8}>
-                    <MaterialIcons name="close" size={17} color="#94a3b8" />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.chipRow}>
-                  {routes.paths.map((p, i) => {
-                    const meta = ROUTE_META[Math.min(i, ROUTE_META.length - 1)];
-                    const km = (p.total_cut_m / 1000).toFixed(2);
-                    const mins = Math.max(
-                      1,
-                      Math.round((p.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
-                    );
-                    const selected = i === curr;
-                    return (
-                      <Pressable
-                        key={`chip-${i}`}
-                        onPress={() => selectRouteChip(i)}
-                        style={[
-                          styles.chip,
-                          selected && {
-                            borderColor: meta.color,
-                            backgroundColor: `${meta.color}26`,
-                          },
-                        ]}
-                      >
-                        <View
-                          style={[styles.chipDot, { backgroundColor: meta.color }]}
-                        />
-                        <View style={styles.chipBody}>
-                          <Text style={styles.chipTitle}>{meta.title}</Text>
-                          <Text style={styles.chipMeta}>
-                            {mins} min · {km} km
-                          </Text>
-                          <Text style={styles.chipMetaDim}>{meta.subtitle}</Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={[
-                  styles.cta,
-                  styles.shadow,
-                  (finding || !startSet || !destSet) && { opacity: 0.55 },
-                ]}
-                onPress={runSearch}
-                disabled={finding || !startSet || !destSet}
-                activeOpacity={0.8}
-              >
-                {finding ? (
-                  <ActivityIndicator color="#0c1210" size="small" />
+  const renderPlanner = () => (
+    <View style={[styles.planner, styles.frost]}>
+      {inputRows.map(({ field, isStart, label, focused }) => (
+        <View key={field}>
+          <View style={[styles.inputRow, focused && styles.inputRowFocused]}>
+            <View
+              style={[
+                styles.dot,
+                { backgroundColor: isStart ? "#22c55e" : "#ef4444" },
+              ]}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder={
+                isStart
+                  ? "Start — address, GPS or map pin"
+                  : "Destination — address or map pin"
+              }
+              placeholderTextColor="#5f7183"
+              value={label}
+              onChangeText={(text) => {
+                if (isStart) setStartLocation(text);
+                else setDestination(text);
+                clearRoute();
+              }}
+              onFocus={() => setActiveField(field)}
+              onBlur={() =>
+                setTimeout(() => {
+                  setActiveField((f) => (f === field ? null : f));
+                }, 180)
+              }
+              onSubmitEditing={() => selectSuggestion(field, 0)}
+              returnKeyType="search"
+            />
+            {isStart ? (
+              <TouchableOpacity onPress={useMyLocation} hitSlop={8}>
+                {gpsBusy ? (
+                  <ActivityIndicator color="#22c55e" size="small" />
                 ) : (
-                  <MaterialIcons name="directions-walk" size={19} color="#0c1210" />
+                  <MaterialIcons name="my-location" size={17} color="#22c55e" />
                 )}
-                <Text style={styles.ctaText}>
-                  {finding ? "Finding routes…" : "Find Routes"}
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              onPress={() => {
+                setMapPickMode(field);
+                setActiveField(null);
+                clearSuggestions();
+              }}
+              hitSlop={8}
+            >
+              <MaterialIcons name="map" size={17} color="#93c5fd" />
+            </TouchableOpacity>
+            {!isStart ? (
+              <TouchableOpacity onPress={swapEnds} hitSlop={8}>
+                <MaterialIcons name="swap-vert" size={17} color="#94a3b8" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      ))}
+
+      {activeField && (searching || suggestions.length > 0) ? (
+        <View style={styles.suggestions}>
+          {searching ? (
+            <View style={styles.suggestionRow}>
+              <ActivityIndicator color="#22c55e" size="small" />
+              <Text style={styles.suggestionSub}>Searching…</Text>
+            </View>
+          ) : null}
+          {suggestions.map((s, i) => (
+            <Pressable
+              key={`${s.lat},${s.lng},${i}`}
+              style={styles.suggestionRow}
+              onPress={() => selectSuggestion(activeField!, i)}
+            >
+              <MaterialIcons
+                name="location-on"
+                size={16}
+                color={activeField === "start" ? "#22c55e" : "#ef4444"}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.suggestionTitle}>{s.name}</Text>
+                {!!(s.city || s.administrative) && (
+                  <Text style={styles.suggestionSub} numberOfLines={1}>
+                    {[s.city, s.administrative].filter(Boolean).join(", ")}
+                  </Text>
+                )}
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const renderErrorCard = () =>
+    routeError && !finding ? (
+      <View style={[styles.errorCard, styles.frost]}>
+        <MaterialIcons name="error-outline" size={15} color="#f87171" />
+        <Text style={styles.errorText} numberOfLines={2}>
+          {routeError}
+        </Text>
+      </View>
+    ) : null;
+
+  const renderPickBanner = () =>
+    mapPickMode ? (
+      <View style={[styles.pickBanner, styles.frost]}>
+        <MaterialIcons name="touch-app" size={15} color="#93c5fd" />
+        <Text style={styles.pickText}>
+          Tap the map to set {mapPickMode === "start" ? "start" : "destination"}
+        </Text>
+        <TouchableOpacity onPress={() => setMapPickMode(null)} hitSlop={8}>
+          <MaterialIcons name="close" size={16} color="#94a3b8" />
+        </TouchableOpacity>
+      </View>
+    ) : null;
+
+  const renderRoutesCard = () =>
+    routes && routeCoords ? (
+      <View style={[styles.resultCard, styles.frost]}>
+        <View style={styles.resultHead}>
+          <Text style={styles.resultTitle}>Your routes</Text>
+          <TouchableOpacity onPress={clearAll} hitSlop={8}>
+            <MaterialIcons name="close" size={17} color="#94a3b8" />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.chipRow}>
+          {routes.paths.map((p, i) => {
+            const meta = ROUTE_META[Math.min(i, ROUTE_META.length - 1)];
+            const km = (p.total_cut_m / 1000).toFixed(2);
+            const mins = Math.max(
+              1,
+              Math.round((p.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
+            );
+            const selected = i === curr;
+            return (
+              <Pressable
+                key={`chip-${i}`}
+                onPress={() => selectRouteChip(i)}
+                style={[
+                  styles.chip,
+                  selected && {
+                    borderColor: meta.color,
+                    backgroundColor: `${meta.color}26`,
+                  },
+                ]}
+              >
+                <View
+                  style={[styles.chipDot, { backgroundColor: meta.color }]}
+                />
+                <View style={styles.chipBody}>
+                  <Text style={styles.chipTitle}>{meta.title}</Text>
+                  <Text style={styles.chipMeta}>
+                    {mins} min · {km} km
+                  </Text>
+                  <Text style={styles.chipMetaDim}>{meta.subtitle}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    ) : (
+      <TouchableOpacity
+        style={[styles.cta, styles.frost, styles.ctaSolid,
+          (finding || !startSet || !destSet) && { opacity: 0.55 },
+        ]}
+        onPress={runSearch}
+        disabled={finding || !startSet || !destSet}
+        activeOpacity={0.8}
+      >
+        {finding ? (
+          <ActivityIndicator color="#0c1210" size="small" />
+        ) : (
+          <MaterialIcons name="directions-walk" size={19} color="#0c1210" />
+        )}
+        <Text style={styles.ctaText}>
+          {finding ? "Finding routes…" : "Find Routes"}
+        </Text>
+      </TouchableOpacity>
+    );
+
+  /** Drawer contents — subtab header + the active subtab's panel. */
+  const renderDrawerBody = () => (
+    <>
+      <View style={styles.drawerTabsRow}>
+        <View style={styles.drawerTabs}>
+          {TAB_META.map((tab) => {
+            const selected = drawerTab === tab.id;
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.drawerTab, selected && styles.drawerTabOn]}
+                onPress={() => setDrawerTab(tab.id)}
+                activeOpacity={0.75}
+              >
+                <MaterialIcons
+                  name={tab.icon}
+                  size={15}
+                  color={selected ? "#22c55e" : "#7c8ea1"}
+                />
+                <Text
+                  style={[styles.drawerTabText, selected && styles.drawerTabTextOn]}
+                  numberOfLines={1}
+                >
+                  {tab.label}
                 </Text>
               </TouchableOpacity>
-            )}
+            );
+          })}
+        </View>
+        <TouchableOpacity
+          onPress={() => {
+            setDrawerOpen(false);
+            setSheetOpen(false);
+          }}
+          hitSlop={8}
+          style={styles.drawerClose}
+        >
+          <MaterialIcons
+            name={wide ? "chevron-right" : "expand-more"}
+            size={20}
+            color="#94a3b8"
+          />
+        </TouchableOpacity>
+      </View>
 
-            {mapPickMode ? (
-              <View style={styles.pickBanner}>
-                <MaterialIcons name="touch-app" size={15} color="#93c5fd" />
-                <Text style={styles.pickText}>
-                  Tap the map to set {mapPickMode === "start" ? "start" : "destination"}
-                </Text>
-                <TouchableOpacity onPress={() => setMapPickMode(null)} hitSlop={8}>
-                  <MaterialIcons name="close" size={16} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
+      <View style={styles.drawerBody}>
+        {drawerTab === "route" ? (
+          <RouteSidebar
+            onUpdateRoute={runSearch}
+            canUpdate={startSet && destSet}
+            updating={finding}
+            lastUpdated={lastUpdated}
+          />
+        ) : null}
+        {drawerTab === "hazards" ? (
+          <HazardsPanel onSubmitted={loadHazards} />
+        ) : null}
+        {drawerTab === "prefs" ? (
+          <PreferencesPanel onPrefsChanged={loadHazards} />
+        ) : null}
+      </View>
+    </>
+  );
 
-          {/* Center map */}
-          <View style={styles.wideMap}>{mapElement}</View>
+  // ---- Layout: ONE full-bleed map with floating overlay cards --------------
 
-          {/* Right side panel */}
-          <View style={styles.wideRight}>
-            <RouteSidebar
-              onUpdateRoute={runSearch}
-              canUpdate={startSet && destSet}
-              updating={finding}
-              lastUpdated={lastUpdated}
-              onHazards={setHazards}
-            />
-          </View>
-        </SafeAreaView>
-      </ThemedView>
-    );
-  }
-
-  // ---- Narrow (mobile) layout: floating planner over full-bleed map ----
   return (
     <ThemedView style={styles.container}>
       {mapElement}
@@ -521,214 +599,65 @@ export default function HomeScreen() {
           edges={["top", "left", "right"]}
           pointerEvents="box-none"
         >
-          <View style={[styles.planner, styles.shadow, styles.plannerMobile]}>
-            {inputRows.map(({ field, isStart, label, focused }) => (
-              <View key={field}>
-                <View style={[styles.inputRow, focused && { borderColor: "#22c55e" }]}>
-                  <View
-                    style={[
-                      styles.dot,
-                      { backgroundColor: isStart ? "#22c55e" : "#ef4444" },
-                    ]}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder={
-                      isStart
-                        ? "Start — enter address or pin on map"
-                        : "Destination — enter address or pin on map"
-                    }
-                    placeholderTextColor="#5b6b7b"
-                    value={label}
-                    onChangeText={(text) => {
-                      if (isStart) setStartLocation(text);
-                      else setDestination(text);
-                      clearRoute();
-                    }}
-                    onFocus={() => setActiveField(field)}
-                    onBlur={() =>
-                      setTimeout(() => {
-                        setActiveField((f) => (f === field ? null : f));
-                      }, 180)
-                    }
-                    onSubmitEditing={() => selectSuggestion(field, 0)}
-                    returnKeyType="search"
-                  />
-                  {isStart ? (
-                    <TouchableOpacity onPress={useMyLocation} hitSlop={8}>
-                      {gpsBusy ? (
-                        <ActivityIndicator color="#22c55e" size="small" />
-                      ) : (
-                        <MaterialIcons name="my-location" size={17} color="#22c55e" />
-                      )}
-                    </TouchableOpacity>
-                  ) : null}
-                  <TouchableOpacity
-                    onPress={() => {
-                      setMapPickMode(field);
-                      setActiveField(null);
-                      clearSuggestions();
-                    }}
-                    hitSlop={8}
-                  >
-                    <MaterialIcons name="map" size={17} color="#93c5fd" />
-                  </TouchableOpacity>
-                  {!isStart ? (
-                    <TouchableOpacity onPress={swapEnds} hitSlop={8}>
-                      <MaterialIcons name="swap-vert" size={17} color="#94a3b8" />
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              </View>
-            ))}
-
-            {activeField && (searching || suggestions.length > 0) ? (
-              <View style={styles.suggestions}>
-                {searching ? (
-                  <View style={styles.suggestionRow}>
-                    <ActivityIndicator color="#22c55e" size="small" />
-                    <Text style={styles.suggestionSub}>Searching…</Text>
-                  </View>
-                ) : null}
-                {suggestions.map((s, i) => (
-                  <Pressable
-                    key={`${s.lat},${s.lng},${i}`}
-                    style={styles.suggestionRow}
-                    onPress={() => selectSuggestion(activeField!, i)}
-                  >
-                    <MaterialIcons
-                      name="location-on"
-                      size={16}
-                      color={activeField === "start" ? "#22c55e" : "#ef4444"}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.suggestionTitle}>{s.name}</Text>
-                      {!!(s.city || s.administrative) && (
-                        <Text style={styles.suggestionSub} numberOfLines={1}>
-                          {[s.city, s.administrative].filter(Boolean).join(", ")}
-                        </Text>
-                      )}
-                    </View>
-                  </Pressable>
-                ))}
+          {/* Floating planner column (over the map) */}
+          <View style={[styles.leftStack, wide && styles.leftStackWide]} pointerEvents="box-none">
+            {wide ? (
+              <View style={styles.brandRow}>
+                <Text style={styles.brand}>Stryde</Text>
+                <Text style={styles.brandTag}>safe walks in DC</Text>
               </View>
             ) : null}
+            {renderPlanner()}
+            {renderErrorCard()}
+            {renderRoutesCard()}
+            {renderPickBanner()}
           </View>
 
-          {mapPickMode ? (
-            <View style={[styles.pickBanner, styles.shadow]}>
-              <MaterialIcons name="touch-app" size={15} color="#93c5fd" />
-              <Text style={styles.pickText}>
-                Tap the map to set {mapPickMode === "start" ? "start" : "destination"}
-              </Text>
-              <TouchableOpacity onPress={() => setMapPickMode(null)} hitSlop={8}>
-                <MaterialIcons name="close" size={16} color="#94a3b8" />
-              </TouchableOpacity>
-            </View>
+          {/* Docked drawer (wide desktop layout) */}
+          {wide && drawerOpen ? (
+            <ThemedView style={[styles.drawerWide, styles.frost]}>
+              {renderDrawerBody()}
+            </ThemedView>
           ) : null}
 
-          {routeError && !finding ? (
-            <View style={[styles.errorCard, styles.shadow]}>
-              <MaterialIcons name="error-outline" size={15} color="#f87171" />
-              <Text style={styles.errorText} numberOfLines={2}>
-                {routeError}
-              </Text>
-            </View>
-          ) : null}
-
-          {routes ? (
-            <View style={[styles.resultCard, styles.shadow]}>
-              <View style={styles.resultHead}>
-                <Text style={styles.resultTitle}>Your routes</Text>
-                <TouchableOpacity onPress={clearAll} hitSlop={8}>
-                  <MaterialIcons name="close" size={17} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.chipRow}>
-                {routes.paths.map((p, i) => {
-                  const meta = ROUTE_META[Math.min(i, ROUTE_META.length - 1)];
-                  const km = (p.total_cut_m / 1000).toFixed(2);
-                  const mins = Math.max(
-                    1,
-                    Math.round((p.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
-                  );
-                  const selected = i === curr;
-                  return (
-                    <Pressable
-                      key={`chip-${i}`}
-                      onPress={() => selectRouteChip(i)}
-                      style={[
-                        styles.chip,
-                        selected && {
-                          borderColor: meta.color,
-                          backgroundColor: `${meta.color}26`,
-                        },
-                      ]}
-                    >
-                      <View style={[styles.chipDot, { backgroundColor: meta.color }]} />
-                      <View style={styles.chipBody}>
-                        <Text style={styles.chipTitle}>{meta.title}</Text>
-                        <Text style={styles.chipMeta}>{mins} min · {km} km</Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          ) : (
-            <View style={styles.ctaWrap} pointerEvents="box-none">
-              <TouchableOpacity
-                style={[
-                  styles.cta,
-                  styles.shadow,
-                  (finding || !startSet || !destSet) && { opacity: 0.55 },
-                ]}
-                onPress={runSearch}
-                disabled={finding || !startSet || !destSet}
-                activeOpacity={0.8}
-              >
-                {finding ? (
-                  <ActivityIndicator color="#0c1210" size="small" />
-                ) : (
-                  <MaterialIcons name="directions-walk" size={19} color="#0c1210" />
-                )}
-                <Text style={styles.ctaText}>
-                  {finding ? "Finding routes…" : "Find Routes"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Side panel trigger */}
-          {!routes && !mapPickMode ? (
+          {/* Drawer reopen tab (wide desktop layout) */}
+          {wide && !drawerOpen ? (
             <TouchableOpacity
-              style={[styles.panelTrigger, styles.shadow]}
+              style={[styles.drawerReopen, styles.frost]}
+              onPress={() => setDrawerOpen(true)}
+              activeOpacity={0.85}
+            >
+              <MaterialIcons name="tune" size={18} color="#22c55e" />
+              <Text style={styles.drawerReopenText}>Route tools</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {/* FAB trigger for the bottom sheet (mobile/narrow) */}
+          {!wide && !sheetOpen && !routes && !mapPickMode ? (
+            <TouchableOpacity
+              style={[styles.fab, styles.frostRow]}
               onPress={() => setSheetOpen(true)}
               activeOpacity={0.85}
             >
-              <MaterialIcons name="tune" size={17} color="#0c1210" />
-              <Text style={styles.ctaText}>Route settings</Text>
+              <MaterialIcons name="tune" size={18} color="#0c1210" />
+              <Text style={styles.fabText}>Route tools</Text>
             </TouchableOpacity>
           ) : null}
         </SafeAreaView>
       </KeyboardAvoidingView>
 
-      <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => setSheetOpen(false)}>
+      {/* Bottom sheet drawer (mobile/narrow) */}
+      <Modal
+        visible={sheetOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSheetOpen(false)}
+      >
         <View style={styles.sheetBackdrop}>
           <Pressable style={{ flex: 1 }} onPress={() => setSheetOpen(false)} />
-          <ThemedView style={[styles.sheet, styles.shadow]}>
+          <ThemedView style={[styles.sheet, styles.frost]}>
             <View style={styles.sheetHandle} />
-            <RouteSidebar
-              onUpdateRoute={() => {
-                setSheetOpen(false);
-                void runSearch();
-              }}
-              canUpdate={startSet && destSet}
-              updating={finding}
-              lastUpdated={lastUpdated}
-              onHazards={setHazards}
-              topInset={26}
-            />
+            <View style={styles.sheetBody}>{renderDrawerBody()}</View>
           </ThemedView>
         </View>
       </Modal>
@@ -737,66 +666,66 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0b0f14", padding: 20 },
-  wideRow: { flex: 1, flexDirection: "row" },
-  wideLeft: {
-    width: 348,
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    gap: Spacing.three,
+  container: { flex: 1, backgroundColor: "#0b0f14" },
+  mapWrap: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
+  map: { flex: 1 },
+  foreground: { flex: 1, position: "relative" },
+  safeArea: { flex: 1 },
+  frost: {
+    backgroundColor: "rgba(13,18,24,0.86)",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.45,
+    shadowRadius: 24,
+    elevation: 16,
   },
-  wideMap: { flex: 1, position: "relative" },
-  wideRight: { width: 322, borderLeftWidth: 1, borderLeftColor: "rgba(148,163,184,0.12)" },
+  leftStack: {
+    position: "absolute",
+    top: Spacing.three,
+    left: Spacing.three,
+    right: Spacing.three,
+    gap: Spacing.two,
+    alignSelf: "flex-start",
+  },
+  leftStackWide: {
+    left: Spacing.four,
+    right: 396,
+    top: Spacing.four,
+  },
   brandRow: {
     flexDirection: "row",
     alignItems: "baseline",
     gap: 8,
     paddingHorizontal: 4,
   },
-  brand: { color: "#f1f5f9", fontSize: 24, fontWeight: "800", letterSpacing: 0.4 },
-  brandTag: { color: "#64748b", fontSize: 12.5, fontWeight: "600" },
-  mapWrap: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
-  map: { flex: 1 },
-  foreground: { flex: 1, position: "relative" },
-  safeArea: {
-    flex: 1,
-    paddingTop: Platform.OS === "web" ? 70 : 0,
-    paddingHorizontal: Spacing.three,
-    gap: Spacing.two,
-  },
-  shadow: {
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 14,
-  },
+  brand: { color: "#f1f5f9", fontSize: 22, fontWeight: "800", letterSpacing: 0.4 },
+  brandTag: { color: "#64748b", fontSize: 12, fontWeight: "600" },
   planner: {
-    backgroundColor: "rgba(15,20,26,0.94)",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
     padding: Spacing.three - 2,
     gap: Spacing.two + 2,
+    maxWidth: wideSafe(520),
+    minWidth: 300,
   },
-  plannerWide: {
-    backgroundColor: "rgba(15,20,26,0.85)",
-    padding: Spacing.three,
-  },
-  plannerMobile: {},
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.09)",
-    paddingHorizontal: 12,
-    height: 48,
+    gap: 9,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 15,
+    borderWidth: 1.4,
+    borderColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 13,
+    height: 50,
   },
-  dot: { width: 11, height: 11, borderRadius: 5.5 },
-  input: { flex: 1, color: "#e2e8f0", fontSize: 15, paddingVertical: 0 },
+  inputRowFocused: {
+    borderColor: "#22c55e",
+    backgroundColor: "rgba(255,255,255,0.09)",
+  },
+  dot: { width: 12, height: 12, borderRadius: 6, marginLeft: 2 },
+  input: { flex: 1, color: "#e2e8f0", fontSize: 15.5, paddingVertical: 0 },
   suggestions: {
     backgroundColor: "rgba(13,17,22,0.98)",
     borderRadius: 13,
@@ -820,13 +749,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    alignSelf: "center",
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     borderRadius: 999,
-    backgroundColor: "rgba(13,18,24,0.94)",
-    borderWidth: 1,
-    borderColor: "rgba(147,197,253,0.4)",
   },
   pickText: { color: "#dbeafe", fontSize: 12.5, fontWeight: "600" },
   errorCard: {
@@ -836,12 +761,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     borderRadius: 13,
-    backgroundColor: "rgba(127,29,29,0.3)",
-    borderWidth: 1,
-    borderColor: "rgba(248,113,113,0.35)",
   },
   errorText: { color: "#fca5a5", fontSize: 12, flex: 1 },
-  ctaWrap: { flex: 1, justifyContent: "flex-end", paddingBottom: Spacing.four + 2 },
+  ctaSolid: { backgroundColor: "#22c55e", borderRadius: 999, borderWidth: 0 },
   cta: {
     alignSelf: "center",
     flexDirection: "row",
@@ -849,25 +771,9 @@ const styles = StyleSheet.create({
     gap: 9,
     paddingHorizontal: Spacing.five,
     paddingVertical: 15,
-    borderRadius: 999,
-    backgroundColor: "#22c55e",
   },
   ctaText: { color: "#0c1210", fontSize: 15.5, fontWeight: "800" },
-  panelTrigger: {
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: "#34d399",
-  },
   resultCard: {
-    backgroundColor: "rgba(15,20,26,0.96)",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
     padding: Spacing.three - 2,
   },
   resultHead: {
@@ -893,9 +799,80 @@ const styles = StyleSheet.create({
   chipTitle: { color: "#f1f5f9", fontSize: 13, fontWeight: "800" },
   chipMeta: { color: "#cbd5e1", fontSize: 11.5, fontWeight: "600" },
   chipMetaDim: { color: "#64748b", fontSize: 10.5 },
+  // Right drawer (docked on desktop)
+  drawerWide: {
+    position: "absolute",
+    top: Spacing.three,
+    bottom: Spacing.three,
+    right: Spacing.three,
+    width: 356,
+  },
+  drawerReopen: {
+    position: "absolute",
+    right: Spacing.three,
+    top: Spacing.three,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  drawerReopenText: { color: "#e2e8f0", fontSize: 13.5, fontWeight: "700" },
+  drawerTabsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.two + 6,
+    paddingTop: Spacing.two + 6,
+    gap: 6,
+  },
+  drawerTabs: { flex: 1, flexDirection: "row", gap: 6 },
+  drawerTab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    minWidth: 0,
+  },
+  drawerTabOn: {
+    borderColor: "rgba(34,197,94,0.55)",
+    backgroundColor: "rgba(34,197,94,0.14)",
+  },
+  drawerTabText: { color: "#9fb2c5", fontSize: 11.5, fontWeight: "700" },
+  drawerTabTextOn: { color: "#4ade80" },
+  drawerClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  drawerBody: { flex: 1, overflow: "hidden" },
+  // Bottom sheet (mobile)
+  fab: {
+    position: "absolute",
+    right: Spacing.four,
+    bottom: Spacing.four + 30,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: "#34d399",
+  },
+  frostRow: { borderWidth: 0 },
+  fabText: { color: "#0c1210", fontSize: 14, fontWeight: "800" },
   sheetBackdrop: { flex: 1, backgroundColor: "rgba(4,8,12,0.5)" },
   sheet: {
-    height: "78%",
+    height: "84%",
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     borderLeftWidth: 1,
@@ -914,4 +891,10 @@ const styles = StyleSheet.create({
     top: 8,
     zIndex: 10,
   },
+  sheetBody: { flex: 1 },
 });
+
+/** Planner card cap that adapts to narrow screens. */
+function wideSafe(max: number): number {
+  return max;
+}
