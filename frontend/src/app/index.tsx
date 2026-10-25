@@ -6,15 +6,6 @@ import {
   MaxContentWidth,
   Spacing,
 } from "@/constants/theme";
-import {
-  BottomSheet,
-  Button,
-  Column,
-  Row,
-  ScrollView,
-  Spacer,
-  Text as UIText,
-} from "@expo/ui";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import React, { useEffect, useState } from "react";
@@ -22,12 +13,16 @@ import {
   ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   useColorScheme,
+  useWindowDimensions,
   View,
 } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
@@ -91,6 +86,7 @@ export default function HomeScreen() {
   const [svcState, setSvcState] = useState<
     "checking" | "online" | "warming" | "offline"
   >("checking");
+  const { height: windowHeight } = useWindowDimensions();
   const [plannerExpanded, setPlannerExpanded] = useState(false);
   const mapRef = React.useRef<MapView>(null);
   const [mapPickMode, setMapPickMode] = useState<
@@ -178,6 +174,7 @@ export default function HomeScreen() {
     setFinding(true);
     setRoutes(null);
     setRouteError(null);
+    setCurr(0);
     setRouteStatus("Finding the safest route…");
     try {
       const result = await api.searchRoute(
@@ -481,8 +478,8 @@ export default function HomeScreen() {
                       : 0,
                 }}
                 onPress={() => {
-                  inputRef.current?.blur();
-                  inputRef2.current?.blur();
+                  // inputRef.current?.blur();
+                  // inputRef2.current?.blur();
                   Keyboard.dismiss();
                   setMode("initial");
                 }}
@@ -490,7 +487,7 @@ export default function HomeScreen() {
                 <MaterialIcons
                   name="close"
                   size={24}
-                  color="#cfc5c5"
+                  color="#fdf7f7"
                   style={{
                     marginLeft: 5,
                   }}
@@ -499,13 +496,11 @@ export default function HomeScreen() {
               <View
                 style={{ flexDirection: "column", justifyContent: "center" }}
               >
-                {((mode === "initial" && startLocationCoords !== "") ||
-                  mode == "select-start") && (
+                {(mode === "initial" || mode == "select-start") && (
                   <TextInput
-                    ref={inputRef2}
                     maxLength={15}
                     autoCorrect={false}
-                    placeholder="Enter starting address, city, etc"
+                    placeholder="Enter start..."
                     style={{
                       width: "100%",
                       paddingVertical: 12,
@@ -523,12 +518,12 @@ export default function HomeScreen() {
                     onFocus={() => setMode("select-start")}
                   />
                 )}
-                {(mode === "initial" || mode == "select-destination") && (
+                {((mode === "initial" && startLocationCoords !== "") ||
+                  mode == "select-destination") && (
                   <TextInput
-                    ref={inputRef}
                     autoCorrect={false}
                     maxLength={15}
-                    placeholder="Enter address, city, etc"
+                    placeholder="Enter destination..."
                     style={{
                       width: "100%",
                       paddingVertical: 12,
@@ -580,10 +575,10 @@ export default function HomeScreen() {
                       inputRef.current?.blur();
                       Keyboard.dismiss();
                       setMode("initial");
-                      if (firstState) {
-                        await getCurrentLocation();
-                        setFirstState(false);
-                      }
+                      // if (firstState) {
+                      //   await getCurrentLocation();
+                      //   setFirstState(false);
+                      // }
                     }}
                   >
                     <MaterialIcons
@@ -626,9 +621,9 @@ export default function HomeScreen() {
                       setStartLocationCoords(`${item.lat},${item.lng}`);
                       setSuggestions([]);
 
-                      inputRef2.current?.blur();
-                      Keyboard.dismiss();
-                      setMode("initial");
+                      // inputRef2.current?.blur();
+                      // Keyboard.dismiss();
+                      setMode("select-destination");
 
                       // await getCurrentLocation();
                     }}
@@ -652,7 +647,7 @@ export default function HomeScreen() {
                 ))}
               </View>
             )}
-            {(mode == "initial" || mode == "done") && generateRoutes && (
+            {/* {(mode == "initial" || mode == "done") && generateRoutes && (
               <View
                 style={{
                   position: "absolute",
@@ -733,111 +728,216 @@ export default function HomeScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
-            )}
+            )} */}
+            {(mode === "initial" || mode === "done") &&
+              (generateRoutes || alternateRoutes) && (
+                <View
+                  style={{
+                    position: "absolute",
+                    bottom: BottomTabInset + 20,
+                    left: 20,
+                    right: 20,
+                  }}
+                >
+                  <TouchableOpacity
+                    disabled={finding}
+                    onPress={() => {
+                      if (alternateRoutes) {
+                        setRoutesVisible(true);
+                      } else {
+                        void handleFindRoute();
+                      }
+                    }}
+                    style={{
+                      backgroundColor: "#2ecc71",
+                      paddingVertical: 16,
+                      borderRadius: 16,
+                      alignItems: "center",
+                      opacity: finding ? 0.6 : 1,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "#ffffff",
+                        fontSize: 17,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {finding
+                        ? "Finding routes..."
+                        : alternateRoutes
+                          ? "View Alternate Routes"
+                          : "Find Routes"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
           </SafeAreaView>
         </KeyboardAvoidingView>
       </View>
-      <BottomSheet
+      {/* <BottomSheet
         isPresented={routesVisible}
         onDismiss={() => setRoutesVisible(false)}
         snapPoints={["half", "full"]}
         containerColor="#242424"
       >
-        <ScrollView>
-          <Spacer />
-          <Column spacing={12}>
-            <UIText
-              textStyle={{ color: "#ffffff", fontSize: 20, fontWeight: "700" }}
+        <ScrollView contentContainerStyle={{ padding: 20 }}>
+          <Text style={{ color: "white", fontSize: 22, marginBottom: 20 }}>
+            Choose a route
+          </Text>
+
+          {routes?.paths.map((route, i) => (
+            <TouchableOpacity
+              key={i}
+              onPress={() => {
+                setCurr(i);
+                setRoutesVisible(false);
+              }}
+              style={{
+                backgroundColor: curr === i ? "#08751a" : "#353131",
+                padding: 16,
+                borderRadius: 12,
+                marginBottom: 12,
+              }}
             >
-              Choose a route
-            </UIText>
-            <Spacer />
+              <Text style={{ color: "white", fontSize: 16 }}>
+                {ROUTE_META[i]?.title ?? `Route ${i + 1}`}
+              </Text>
+              <Text style={{ color: "#aaaaaa" }}>
+                {(route.total_cut_m / 1000).toFixed(2)} km
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </BottomSheet> */}
+      {/* <BottomSheet
+        isPresented={routesVisible}
+        onDismiss={() => setRoutesVisible(false)}
+      >
+        <Column spacing={12}>
+          <UIText>Choose a route</UIText>
+        </Column>
+      </BottomSheet> */}
+      <Modal
+        visible={routesVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRoutesVisible(false)}
+      >
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
+          {/* Tap outside the sheet to dismiss */}
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setRoutesVisible(false)}
+          />
 
-            {routes?.paths.map((route, i) => {
-              const meta = ROUTE_META[Math.min(i, ROUTE_META.length - 1)];
-              const km = (route.total_cut_m / 1000).toFixed(2);
-              const mins = Math.max(
-                1,
-                Math.round((route.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
-              );
-              const selected = i === curr;
+          <View
+            style={{
+              backgroundColor: "#242424",
+              maxHeight: "60%",
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+            }}
+          >
+            {/* Header with close button */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingHorizontal: 20,
+                paddingTop: 16,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 20, fontWeight: "700" }}>
+                Choose a route
+              </Text>
+              <TouchableOpacity
+                onPress={() => setRoutesVisible(false)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <MaterialIcons name="close" size={24} color="#cfc5c5" />
+              </TouchableOpacity>
+            </View>
 
-              return (
-                <Button
-                  key={`route-${i}`}
-                  onPress={() => {
-                    setCurr(i);
-                    if (routeCoords?.[i]?.length) {
-                      mapRef.current?.fitToCoordinates(routeCoords[i], {
-                        edgePadding: {
-                          top: 120,
-                          right: 60,
-                          bottom: 360,
-                          left: 60,
-                        },
-                        animated: true,
-                      });
-                    }
-                  }}
-                  colors={{
-                    containerColor: selected ? "#08751a" : "#353131",
-                    contentColor: "#FFFFFF",
-                  }}
-                >
-                  <Row spacing={12} alignment="center">
-                    <UIText
-                      textStyle={{
-                        color: selected ? "green" : "#ffffff",
-                        fontSize: 22,
-                      }}
-                    >
-                      ●
-                    </UIText>
+            <ScrollView contentContainerStyle={{ padding: 20 }}>
+              {routes?.paths.map((route, i) => {
+                const meta = ROUTE_META[Math.min(i, ROUTE_META.length - 1)];
+                const km = (route.total_cut_m / 1000).toFixed(2);
+                const mins = Math.max(
+                  1,
+                  Math.round((route.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
+                );
 
-                    <Column spacing={2}>
-                      <UIText
-                        textStyle={{
-                          color: "#ffffff",
+                return (
+                  <TouchableOpacity
+                    key={`route-${i}`}
+                    onPress={() => {
+                      setCurr(i);
+                      if (routeCoords?.[i]?.length) {
+                        mapRef.current?.fitToCoordinates(routeCoords[i], {
+                          edgePadding: {
+                            top: 120,
+                            right: 60,
+                            bottom: windowHeight * 0.6,
+                            left: 60,
+                          },
+                          animated: true,
+                        });
+                      }
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      backgroundColor: i === curr ? "#08751a" : "#353131",
+                      padding: 16,
+                      borderRadius: 12,
+                      marginBottom: 12,
+                    }}
+                  >
+                    <View>
+                      <Text
+                        style={{
+                          color: "#fff",
                           fontSize: 16,
                           fontWeight: "600",
                         }}
                       >
                         {meta.title}
-                      </UIText>
-                      <UIText
-                        textStyle={{
+                      </Text>
+                      <Text
+                        style={{
                           color: meta.color,
                           fontSize: 12,
                           fontWeight: "600",
                         }}
                       >
                         {meta.tag}
-                      </UIText>
-                    </Column>
+                      </Text>
+                    </View>
 
-                    <Spacer />
-
-                    <Column spacing={2}>
-                      <UIText
-                        textStyle={{
-                          color: "#ffffff",
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text
+                        style={{
+                          color: "#fff",
                           fontSize: 16,
                           fontWeight: "700",
                         }}
                       >
                         {mins} min
-                      </UIText>
-                      <UIText textStyle={{ color: "#aaaaaa", fontSize: 12 }}>
+                      </Text>
+                      <Text style={{ color: "#aaaaaa", fontSize: 12 }}>
                         {km} km
-                      </UIText>
-                    </Column>
-                  </Row>
-                </Button>
-              );
-            })}
-          </Column>
-        </ScrollView>
-      </BottomSheet>
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }

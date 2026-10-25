@@ -137,7 +137,9 @@ export const api = {
     const res = await request("/detect", { method: "POST", body: data });
     return res.json();
   },
-async reportHazard(formData: FormData): Promise<{ status: string; photo_path?: string }> {
+  async reportHazard(
+    formData: FormData,
+  ): Promise<{ status: string; photo_path?: string }> {
     const res = await request("/report", { method: "POST", body: formData });
     return res.json();
   },

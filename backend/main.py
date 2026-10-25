@@ -22,32 +22,32 @@ REPO = ROOT  # backend/.. == repo root
 HAZARDS_DB = REPO / "data" / "user_hazards.csv"
 USER_PREFS = REPO / "data" / "user_prefs.json"
 cost_specs = [
-    {
-        "crossing_base":1,
-        "crossing_length":2,
-        "unknown": 3,
-        "vehicle": 6,
-        "bicycle": 80,
-        "pedestrians":500,
-        "fatal_pedestrian": 10**6
-    },
-    {   
-        "crossing_base":0,
-        "crossing_length":1,
-        "unknown": 2,
-        "vehicle": 3,
-        "bicycle": 50,
-        "pedestrians":100,
-        "fatal_pedestrian": 10**4
-    },
-    {
+    {   # safest
         "crossing_base": 0,
-        "crossing_length":0,
+        "crossing_length": 0.5,
+        "unknown": 2,
+        "vehicle": 0.3,
+        "bicycle": 2,
+        "pedestrians": 4,
+        "fatal_pedestrian": 50,
+    },
+    {   # balanced
+        "crossing_base": 0,
+        "crossing_length": 0.25,
+        "unknown": 1,
+        "vehicle": 0.15,
+        "bicycle": 1,
+        "pedestrians": 2,
+        "fatal_pedestrian": 25,
+    },
+    {   # shortest
+        "crossing_base": 0,
+        "crossing_length": 0,
         "unknown": 0,
         "vehicle": 0,
         "bicycle": 0,
-        "pedestrians":0,
-        "fatal_pedestrian": 0
+        "pedestrians": 0,
+        "fatal_pedestrian": 0,
     },
 ]
 def _load_graph_osm():
@@ -234,12 +234,12 @@ def cost_spec_caller(start: str, goal: str, s_cands, g_cands, cost_spec):
         except ValueError:
             pass
 
-    geometry = [p for p in ([s_point] if s_point else [])]
+    geometry = [s_point]
     for n in path:
         ll = latlngs.get(n)
         if ll:
             geometry.append(ll)
-    geometry += [p for p in ([g_point] if g_point else [])]
+    geometry += [g_point]
     geometry = [[round(p[0], 6), round(p[1], 6)] for p in geometry]
     if s_used is None or g_used is None:
         return None
@@ -280,6 +280,7 @@ async def search(start: str = Query(...), goal: str = Query(...)):
     if any(r is None for r in final_paths):
         raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
     # return final_paths[0]
+    print("got paths: ", len(final_paths))
     return {"paths": final_paths}
 
 
