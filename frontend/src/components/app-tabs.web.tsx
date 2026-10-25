@@ -76,6 +76,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
+    top:20
   },
   innerContainer: {
     paddingVertical: Spacing.two,

@@ -8,8 +8,9 @@
 //  3. localhost (simulator / web)
 import Constants from "expo-constants";
 
-const DEV_FALLBACK = "http://localhost:8100";
-
+const DEV_FALLBACK = "http://192.168.1.18:8100";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+const PREFS_KEY = "stryde:prefs";
 function resolveBaseUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_URL;
   if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/+$/, "");
@@ -136,16 +137,20 @@ export const api = {
   },
 
   async getPreferences(): Promise<Record<string, unknown>> {
-    const res = await request("/preferences");
-    return res.json();
+    try {
+      const raw = await AsyncStorage.getItem(PREFS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
   },
-
   async savePreferences(prefs: Record<string, unknown>): Promise<void> {
-    await request("/preferences", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(prefs),
-    });
+    try {
+      const current = await api.getPreferences();
+      await AsyncStorage.setItem(PREFS_KEY, JSON.stringify({ ...current, ...prefs }));
+    } catch {
+      // storage unavailable; settings just won't persist past this session
+    }
   },
 
   async coverage(

@@ -20,7 +20,7 @@ REPO = ROOT  # backend/.. == repo root
 
 # --- Constants & Database Paths ---
 HAZARDS_DB = REPO / "data" / "user_hazards.csv"
-USER_PREFS = REPO / "data" / "user_prefs.json"
+# USER_PREFS = REPO / "data" / "user_prefs.json"
 cost_specs = [
     {   # safest
         "crossing_base": 0,
@@ -450,14 +450,14 @@ async def detect_endpoint(file: UploadFile = File(), conf: float = Form(0.25)):
         return {"detections": detect(data, conf=conf)}
     except Exception as e: raise HTTPException(status_code=503, detail=str(e))
 
-@app.get("/preferences")
-def get_prefs():
-    with open(USER_PREFS, 'r') as f: return json.load(f)
+# @app.get("/preferences")
+# def get_prefs():
+#     with open(USER_PREFS, 'r') as f: return json.load(f)
 
-@app.post("/preferences")
-def set_prefs(prefs: dict):
-    with open(USER_PREFS, 'w') as f: json.dump(prefs, f)
-    return prefs
+# @app.post("/preferences")
+# def set_prefs(prefs: dict):
+#     with open(USER_PREFS, 'w') as f: json.dump(prefs, f)
+#     return prefs
 
 
 # --- Route assistant --------------------------------------------------------

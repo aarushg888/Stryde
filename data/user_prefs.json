@@ -1,1 +1,1 @@
-{"routingMode": "standard", "preferSidewalks": false, "avoidObstacles": false, "wellLitOnly": false, "lowTraffic": false}
+{"routingMode": "wheelchair", "preferSidewalks": false, "wellLitOnly": false, "lowTraffic": false, "avoidObstacles": false}

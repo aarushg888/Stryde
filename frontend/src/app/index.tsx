@@ -737,7 +737,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0b0f14" },
+  container: { flex: 1, backgroundColor: "#0b0f14", padding: 20 },
   wideRow: { flex: 1, flexDirection: "row" },
   wideLeft: {
     width: 348,
