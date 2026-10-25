@@ -193,7 +193,7 @@ NO_PATH_NEARBY = (
 @app.get("/")
 def root():
     return {"message": "Stryde MVP API",
-            "routes": ["/search", "/coverage", "/detect", "/health", "/chat", "/report", "/preferences"]}
+            "routes": ["/search", "/coverage", "/detect", "/health", "/chat", "/report", "/hazards", "/preferences"]}
 
 
 def _haversine(a, b):
@@ -329,7 +329,37 @@ async def report_hazard(type: str = Form(...), lat: float = Form(...), lng: floa
         with open(photo_path, "wb") as f: f.write(await file.read())
     with open(HAZARDS_DB, 'a', newline='') as f:
         csv.writer(f).writerow([ts, type, lat, lng, description, str(photo_path) if photo_path else ""])
-    return {"status": "reported"}
+    return {"status": "reported", "id": int(ts)}
+
+
+@app.get("/hazards")
+def list_hazards(limit: int = 25):
+    """Recent community hazard reports, newest first (photo path only)."""
+    out = []
+    try:
+        with open(HAZARDS_DB, newline='') as f:
+            rows = list(csv.reader(f))
+    except FileNotFoundError:
+        rows = []
+    for row in rows[-limit:]:
+        row = (row + ["", "", "", "", "", ""])[:6]
+        ts, htype, lat, lng, desc, photo = row
+        try:
+            latf, lngf, tsf = float(lat), float(lng), float(ts)
+        except (TypeError, ValueError):
+            continue
+        photo_name = photo.rsplit("/", 1)[-1] if photo else None
+        out.append({
+            "id": int(tsf),
+            "ts": tsf,
+            "type": htype,
+            "lat": latf,
+            "lng": lngf,
+            "description": desc,
+            "photo": photo_name,
+        })
+    out.reverse()
+    return {"hazards": out}
 
 @app.post("/detect")
 async def detect_endpoint(file: UploadFile = File(), conf: float = Form(0.25)):
@@ -375,45 +405,45 @@ def _prefs_line(p: ChatRequest) -> str:
     return f"{mode}" + (", prioritizing " + ", ".join(flags) if flags else "")
 
 
-_INTENTS: list[tuple[tuple[str, ...], str]] = [
+_INTENTS: list[tuple[tuple[str, ...], str, dict | None]] = [
     (("how do routes work", "how does stryde work", "how does it work", "how routing", "algorithm"),
      "Stryde searches the DC sidewalk graph with A* under three cost profiles - Safest "
      "(harsh penalties for crossings, unmarked walk space and crash clusters), Balanced, "
      "and Shortest (pure distance). Each return trip is scored, drawn on the map, and you "
-     "pick the trade-off you want."),
+     "pick the trade-off you want.", None),
     (("what do you detect", "what can you detect", "hazard", "camera", "photo", "detect"),
      "Our YOLO street-barrier model flags five classes from a photo: curb ramps, "
      "crosswalks, tactile paving, stairs/steps and ramps. Upload from the Safeguard tab to "
-     "verify a barrier, then hit Report to add it to the shared hazard map."),
+     "verify a barrier, then hit Report to add it to the shared hazard map.", None),
     (("wheelchair", "accessible", "accessibility mode", "wheel chair"),
      "Wheelchair mode is one of our routing access modes. Pair it with Prefer sidewalks "
      "and Protected crossings and choose the Safest profile - it weights unmarked crossings "
-     "and missing walk space so steep or stepped segments get avoided."),
+     "and missing walk space so steep or stepped segments get avoided.", {"routingMode": "wheelchair", "preferSidewalks": True, "avoidObstacles": True}),
     (("night", "light", "dark", "evening"),
      "Evening planners: enable Enhanced Safety Lighting, and the Safest profile will keep "
-     "you on crossings and corridors we can score for vehicle and pedestrian danger."),
+     "you on crossings and corridors we can score for vehicle and pedestrian danger.", {"wellLitOnly": True, "routingMode": "wheelchair"}),
     (("traffic", "car", "vehicles", "noisy"),
      "Low Traffic Exposure steers you away from arterial roads. Crash clusters within "
      "20 m of a crossing contribute real DC crash counts (vehicles, bicycles, "
-     "pedestrians, fatalities) to the route cost."),
+     "pedestrians, fatalities) to the route cost.", {"lowTraffic": True}),
     (("crash", "incident", "dangerous", "unsafe", "safety"),
      "Stryde blends the reported-barrier graph with DC Open Data crash records: crashes "
      "within 20 meters of a crossing add weighted danger to every edge, so the Safest "
-     "route detours around statistically risky intersections."),
+     "route detours around statistically risky intersections.", None),
     (("coverage", "where does", "which area", "region", "district"),
      "We cover the DC sidewalk network around Logan Circle today; the coverage grows "
      "with every graph refresh. Routes snap your pin to the nearest walk node within "
-     "400 meters."),
+     "400 meters.", None),
     (("report", "contribute", "add hazard", "upload"),
      "From the Safeguard tab: snap a photo, the model tags the barrier class, drop a "
      "description and the pin stores into our shared hazard layer for everyone's next "
-     "route."),
+     "route.", None),
     (("preference", "settings", "configure", "tune"),
      "In Preferences you can set the Routing Access Mode (standard or wheelchair) and "
-     "path, crossings, lighting and traffic flags. Your current setup: {prefs}"),
+     "path, crossings, lighting and traffic flags. Your current setup: {prefs}", None),
     (("hello", "hi", "hey", "what can you do", "help"),
      "I can explain Stryde routing, hazards, coverage and privacy in this demo. Right "
-     "now your filters are: {prefs}. Ask me 'how do routes work?' to get started."),
+     "now your filters are: {prefs}. Ask me 'how do routes work?' to get started.", None),
 ]
 
 
@@ -421,11 +451,14 @@ _INTENTS: list[tuple[tuple[str, ...], str]] = [
 def chat(req: ChatRequest):
     text = req.message.strip().lower()
     if text:
-        for keys, reply in _INTENTS:
+        for keys, reply, patch in _INTENTS:
             if any(k in text for k in keys):
-                return {"reply": reply.replace("{prefs}", _prefs_line(req))}
+                return {
+                    "reply": reply.replace("{prefs}", _prefs_line(req)),
+                    "patch": patch,
+                }
         return {"reply": "Great question - in this demo the assistant covers routing, "
                 "hazards, coverage and privacy. Your filters are: " + _prefs_line(req) +
-                ". Ask 'how do routes work?' to see the details."}
+                ". Ask 'how do routes work?' to see the details.", "patch": None}
     return {"reply": "Ask me anything about Stryde - e.g. 'how do routes work?' "
-            "(Your filters: " + _prefs_line(req) + ")"}
+            "(Your filters: " + _prefs_line(req) + ")", "patch": None}

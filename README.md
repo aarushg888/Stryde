@@ -69,6 +69,7 @@ Wi‑Fi resolve to the Metro host instead. Override with
 | `GET /coverage?area=` | demo/NoVA/test footprints |
 | `POST /detect` | YOLO barrier classes + confidence for an uploaded photo |
 | `POST /report` | community hazard (type, lat/lng, description, photo) |
+| `GET /hazards` | recent community hazard reports (newest first) |
 | `GET/POST /preferences` | persisted routing-mode + safety flags |
 | `POST /chat` | rules-based route assistant (offline, deterministic) |
 

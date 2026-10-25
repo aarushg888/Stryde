@@ -16,7 +16,7 @@
  */
 import type { LeafletScheme } from './leaflet-types';
 
-const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const TILE_URL = 'https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png';
 const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
 const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 
@@ -46,10 +46,9 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '<link rel="stylesheet" href="' + LEAFLET_CSS + '">',
     '<style>',
     'html,body{height:100%;margin:0;padding:0;}',
-    '#map{height:100%;background:#f8f6ef;font-family:-apple-system,Roboto,sans-serif;}',
-    'body.dark #map{background:#0d1117;}',
-    '/* OSM raster tiles get Stryde night mode purely in CSS */',
-    'body.dark .leaflet-tile{filter:invert(1) hue-rotate(185deg) brightness(0.92) contrast(0.85) saturate(0.65);}',
+    '#map{height:100%;background:#0b0f14;font-family:-apple-system,Roboto,sans-serif;}',
+    '/* Wikimedia raster tiles get Stryde night mode via a tuned CSS filter */',
+    'body.dark .leaflet-tile{filter:brightness(0.62) invert(1) contrast(2.4) hue-rotate(196deg) saturate(0.32) brightness(0.82);}',
     'body.dark .leaflet-control-attribution{background:rgba(13,17,23,0.75);color:#8fa0b3;}',
     '.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#fff;border-radius:10px;}',
     '</style>',
@@ -61,7 +60,7 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '(function(){',
     '  var S = window.__stryde__ || {};',
     '  var map = L.map("map", {zoomControl:true, attributionControl:true, preferCanvas:true});',
-    '  L.tileLayer("' + TILE_URL + '", {maxZoom:19, attribution:"&copy; OpenStreetMap contributors"}).addTo(map);',
+    '  L.tileLayer("' + TILE_URL + '", {maxZoom:19, attribution:"&copy; OpenStreetMap contributors, tiles &copy; Wikimedia"}).addTo(map);',
     '  var routeLayer = L.layerGroup().addTo(map);',
     '  var markerLayer = L.layerGroup().addTo(map);',
     '  function isDark(){ return document.body.classList.contains("dark"); }',

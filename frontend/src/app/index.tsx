@@ -1,11 +1,10 @@
 import { api, RouteResult } from "@/api/api";
+import { AppMap } from "@/components/app-map";
+import type { AppMapHandle } from "@/components/app-map-types";
 import { ThemedView } from "@/components/themed-view";
-import {
-  BottomTabInset,
-  Colors,
-  MaxContentWidth,
-  Spacing,
-} from "@/constants/theme";
+import { usePlaceSearch } from "@/hooks/use-place-search";
+import { Spacing } from "@/constants/theme";
+import { DC_REGION, parseLatLng } from "@/utils/geo";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import React, { useEffect, useState } from "react";
@@ -13,1128 +12,595 @@ import {
   ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  useColorScheme,
-  useWindowDimensions,
   View,
 } from "react-native";
-import { AppMap } from "@/components/app-map";
-import type { AppMapHandle } from "@/components/app-map-types";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { usePlaceSearch } from "@/hooks/use-place-search";
-import { DC_REGION, parseLatLng } from "@/utils/geo";
 
 const ROUTE_META = [
-  { title: "Safest route", tag: "Recommended", color: "#2ecc71" },
-  { title: "Balanced route", tag: "Moderate risk", color: "#f1c40f" },
-  { title: "Shortest route", tag: "Higher risk", color: "#e74c3c" },
+  { title: "Safest", subtitle: "fewest barriers", color: "#22c55e" },
+  { title: "Balanced", subtitle: "some risk", color: "#eab308" },
+  { title: "Shortest", subtitle: "highest risk", color: "#ef4444" },
 ] as const;
 const WALK_SPEED_KMH = 4.5;
-export default function HomeScreen() {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === "dark" ? "dark" : "light"];
 
+export default function HomeScreen() {
   const [startLocation, setStartLocation] = useState("");
   const [destination, setDestination] = useState("");
   const [startLocationCoords, setStartLocationCoords] = useState("");
   const [destinationCoords, setDestinationCoords] = useState("");
   const [routes, setRoutes] = useState<RouteResult | null>(null);
-  const [curr, setCurr] = useState<number>(0);
+  const [curr, setCurr] = useState(0);
   const [routeCoords, setRouteCoords] =
     useState<{ latitude: number; longitude: number }[][]>();
   const [routeError, setRouteError] = useState<string | null>(null);
-  const [routeStatus, setRouteStatus] = useState<string | null>(null);
   const [finding, setFinding] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [svcState, setSvcState] = useState<
-    "checking" | "online" | "warming" | "offline"
-  >("checking");
-  const { height: windowHeight } = useWindowDimensions();
-  const [plannerExpanded, setPlannerExpanded] = useState(false);
+  const [mapPickMode, setMapPickMode] = useState<"start" | "destination" | null>(
+    null,
+  );
+  const [activeField, setActiveField] = useState<"start" | "destination" | null>(
+    null,
+  );
+  const [gpsBusy, setGpsBusy] = useState(false);
   const mapRef = React.useRef<AppMapHandle>(null);
-  const [mapPickMode, setMapPickMode] = useState<
-    "start" | "destination" | null
-  >(null);
-  const [mode, setMode] = useState<
-    "initial" | "select-destination" | "select-start" | "done"
-  >("initial");
-  const [routesVisible, setRoutesVisible] = useState(false);
-  const getCurrentLocation = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
 
-      if (status !== "granted") {
-        console.log("Location permission denied");
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const { latitude, longitude } = location.coords;
-
-      setStartLocation("Your location");
-      setStartLocationCoords(`${latitude},${longitude}`);
-    } catch (error) {
-      console.error("Location error:", error);
-    }
-  };
-  // Backend visibility pill: tells users whether the API is reachable before they type.
-  useEffect(() => {
-    let alive = true;
-    const poll = async () => {
-      try {
-        const h = await api.health();
-        if (!alive) return;
-        setSvcState(h.ok ? (h.weights ? "online" : "warming") : "offline");
-      } catch {
-        if (alive) setSvcState("offline");
-      }
-    };
-
-    void poll();
-    const id = setInterval(poll, 30000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
-
-  useEffect(() => {
-    const showSubscription = Keyboard.addListener("keyboardDidShow", () =>
-      setKeyboardVisible(true),
-    );
-    const hideSubscription = Keyboard.addListener("keyboardDidHide", () =>
-      setKeyboardVisible(false),
-    );
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
-
-  const clearRoute = () => {
-    setRoutes(null);
-    setRouteStatus(null);
-    setRouteError(null);
-    setCurr(0);
-    setRouteCoords(undefined);
-  };
-
-  const swapEnds = () => {
-    setStartLocationCoords(destinationCoords);
-    setDestinationCoords(startLocationCoords);
-    clearRoute();
-  };
-
-  const handleFindRoute = async () => {
-    Keyboard.dismiss();
-    if (!startLocationCoords.trim() || !destinationCoords.trim()) {
-      setRouteStatus("Enter a start and a destination to plan a route.");
-      return;
-    }
-    setFinding(true);
-    setRoutes(null);
-    setRouteError(null);
-    setCurr(0);
-    setRouteStatus("Finding the safest route…");
-    try {
-      const result = await api.searchRoute(
-        startLocationCoords.trim(),
-        destinationCoords.trim(),
-      );
-      setRoutes(result);
-      const coordArr: { latitude: number; longitude: number }[][] =
-        result.paths.map((path) =>
-          path.geometry.map(([lat, lng]) => ({
-            latitude: lat,
-            longitude: lng,
-          })),
-        );
-      const bestPath = result.paths[0];
-      const km = (bestPath.total_cut_m / 1000).toFixed(2);
-      const mins = Math.max(
-        1,
-        Math.round((bestPath.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
-      );
-      setRouteStatus(`${km} km · about ${mins} min`);
-      setRouteCoords(coordArr);
-      if (bestPath.geometry.length > 1) {
-        mapRef.current?.fitToCoordinates(
-          bestPath.geometry.map(([lat, lng]) => ({
-            latitude: lat,
-            longitude: lng,
-          })),
-          {
-            edgePadding: { top: 80, right: 60, bottom: 80, left: 60 },
-            animated: true,
-          },
-        );
-      }
-      setAlternateRoutes(true);
-    } catch (e) {
-      setRouteError(e instanceof Error ? e.message : "Route failed");
-    } finally {
-      setFinding(false);
-    }
-  };
-  const [generateRoutes, setGenerateRoutes] = useState(false);
   const startCoordinate = parseLatLng(startLocationCoords);
   const destinationCoordinate = parseLatLng(destinationCoords);
-  const inputRef = React.useRef<TextInput>(null);
-  const inputRef2 = React.useRef<TextInput>(null);
-  const [firstState, setFirstState] = useState(true);
-  // const routeCoords = route?.geometry?.length
-  //   ? route.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng }))
-  //   : [];
-  // Debounced place search shared by both inputs (start & destination).
+  const startSet = Boolean(startCoordinate);
+  const destSet = Boolean(destinationCoordinate);
+
+  // Debounced place search shown under the currently focused field.
   const activeQuery =
-    mode === "select-destination"
+    activeField === "destination"
       ? destination
-      : mode === "select-start"
+      : activeField === "start"
         ? startLocation
         : "";
   const { suggestions, searching, clearSuggestions } = usePlaceSearch(
     activeQuery,
-    mode === "select-destination" || mode === "select-start",
+    activeField !== null,
   );
-  const [alternateRoutes, setAlternateRoutes] = useState(false);
-  const updateStartLocation = (value: string) => {
-    if (value.length > 15) {
-      value = value.substring(0, 15);
-    }
-    setStartLocation(value);
-    setAlternateRoutes(false);
-    setGenerateRoutes(true);
+
+  // Collapse the dropdown when the hardware keyboard/blur happens elsewhere.
+  useEffect(() => {
+    const sub = Keyboard.addListener("keyboardDidHide", () =>
+      setActiveField(null),
+    );
+    return sub.remove;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+  }, []);
+
+  const clearRoute = () => {
+    setRoutes(null);
+    setRouteCoords(undefined);
+    setCurr(0);
+    setRouteError(null);
   };
-  const updateDestination = (value: string) => {
-    if (value.length > 15) {
-      value = value.substring(0, 15);
-    }
-    setDestination(value);
-    setAlternateRoutes(false);
-    setGenerateRoutes(true);
+
+  const swapEnds = () => {
+    const startText = startLocation;
+    const startCoords = startLocationCoords;
+    setStartLocation(destination);
+    setStartLocationCoords(destinationCoords);
+    setDestination(startText);
+    setDestinationCoords(startCoords);
+    clearRoute();
   };
+
+  const selectSuggestion = (field: "start" | "destination", index: number) => {
+    const item = suggestions[index];
+    if (!item) return;
+    Keyboard.dismiss();
+    setActiveField(null);
+    clearSuggestions();
+    const coords = `${item.lat.toFixed(6)},${item.lng.toFixed(6)}`;
+    const label = item.name;
+    if (field === "start") {
+      setStartLocation(label);
+      setStartLocationCoords(coords);
+
+    } else {
+      setDestination(label);
+      setDestinationCoords(coords);
+
+    }
+    clearRoute();
+  };
+
+  const useMyLocation = async () => {
+    try {
+      setGpsBusy(true);
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setRouteError("Location permission is needed to use GPS.");
+        return;
+      }
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const { latitude, longitude } = location.coords;
+      setStartLocation("My location");
+      setStartLocationCoords(`${latitude.toFixed(6)},${longitude.toFixed(6)}`);
+      setActiveField(null);
+      clearSuggestions();
+      clearRoute();
+    } finally {
+      setGpsBusy(false);
+    }
+  };
+
+  const handleFindRoute = async () => {
+    Keyboard.dismiss();
+    setActiveField(null);
+    if (!startLocationCoords || !destinationCoords) {
+      setRouteError("Choose a start and a destination first.");
+      return;
+    }
+    setFinding(true);
+    clearRoute();
+    try {
+      const result = await api.searchRoute(
+        startLocationCoords,
+        destinationCoords,
+      );
+      const coordArr = result.paths.map((p) =>
+        p.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng })),
+      );
+      setRoutes(result);
+      setRouteCoords(coordArr);
+      setCurr(0);
+      mapRef.current?.fitToCoordinates(coordArr[0], {
+        edgePadding:
+          Platform.OS === "web"
+            ? { top: 190, right: 40, bottom: 230, left: 40 }
+            : { top: 170, right: 40, bottom: 220, left: 40 },
+        animated: true,
+      });
+    } catch (e) {
+      setRouteError(e instanceof Error ? e.message : "Routing failed");
+    } finally {
+      setFinding(false);
+    }
+  };
+
+  const selectRouteChip = (i: number) => {
+    setCurr(i);
+    if (routeCoords?.[i]) {
+      mapRef.current?.fitToCoordinates(routeCoords[i], {
+        edgePadding: { top: 170, right: 40, bottom: 230, left: 40 },
+        animated: true,
+      });
+    }
+  };
+
+  const clearAll = () => {
+    clearRoute();
+    setStartLocation("");
+    setStartLocationCoords("");
+    setDestination("");
+    setDestinationCoords("");
+    setMapPickMode(null);
+    setActiveField(null);
+    clearSuggestions();
+  };
+
+  const inputRows = (["start", "destination"] as const).map((field) => {
+    const isStart = field === "start";
+    const label = isStart ? startLocation : destination;
+    const hasCoords = isStart
+      ? Boolean(startCoordinate)
+      : Boolean(destinationCoordinate);
+    const focused = activeField === field;
+    return { field, isStart, label, hasCoords, focused };
+  });
+
   return (
     <ThemedView style={styles.container}>
-      {(mode == "initial" || mode == "done") && (
-        <View
-          style={[styles.mapCard, { borderColor: colors.backgroundElement }]}
-        >
-          <AppMap
-            ref={mapRef}
-            style={styles.map}
-            initialRegion={DC_REGION}
-            onPressPick={(latitude, longitude) => {
-              if (!mapPickMode) return;
-
-              const coordinates = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
-
-              if (mapPickMode === "destination") {
-                setDestination(coordinates);
-              } else {
-                setStartLocation(coordinates);
-              }
-
-              clearRoute();
-              setPlannerExpanded(true);
-              setMapPickMode(null);
-            }}
-            routes={
-              routeCoords && routes
-                ? routeCoords.map((coordinates, i) => ({
-                    coordinates,
-                    color: ROUTE_META[Math.min(i, ROUTE_META.length - 1)].color,
-                    selected: i === curr,
-                  }))
-                : undefined
+      <View style={styles.mapWrap}>
+        <AppMap
+          ref={mapRef}
+          style={styles.map}
+          initialRegion={DC_REGION}          onPressPick={(latitude, longitude) => {
+            if (!mapPickMode) return;
+            const coords = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+            if (mapPickMode === "start") {
+              setStartLocation("Pinned location");
+              setStartLocationCoords(coords);
+            } else {
+              setDestination("Pinned location");
+              setDestinationCoords(coords);
             }
-            markers={[
-              ...(destinationCoordinate
-                ? [
-                    {
-                      coordinate: destinationCoordinate,
-                      title: "Destination",
-                      color: "#e74c3c",
-                    },
-                  ]
-                : []),
-              ...(startCoordinate
-                ? [{ coordinate: startCoordinate, title: "Start", color: "#2ecc71" }]
-                : []),
-            ]}
-          />
-        </View>
-      )}
-      {(mode == "select-destination" || mode == "select-start") && (
-        <View></View>
-      )}
-
-      {plannerExpanded && !mapPickMode && !routeCoords && (
-        <View pointerEvents="none" style={styles.mapDimOverlay} />
-      )}
-
-      <View style={styles.foregroundContainer} pointerEvents="box-none">
-        <KeyboardAvoidingView
-          pointerEvents="box-none"
-          style={styles.container}
-          behavior={
-            Platform.OS === "ios"
-              ? "padding"
-              : Platform.OS === "android"
-                ? "height"
-                : undefined
+            setMapPickMode(null);
+            setActiveField(null);
+            clearSuggestions();
+            clearRoute();
+          }}
+          routes={
+            routeCoords
+              ? routeCoords.map((coordinates, i) => ({
+                  coordinates,
+                  color: ROUTE_META[Math.min(i, ROUTE_META.length - 1)].color,
+                  selected: i === curr,
+                }))
+              : undefined
           }
-        >
-          <SafeAreaView
-            pointerEvents="box-none"
-            style={styles.safeArea}
-            edges={["top", "left", "right"]}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                marginTop: 5,
-              }}
-            >
-              <TouchableOpacity
-                style={{
-                  paddingVertical: 12,
-                  opacity:
-                    mode === "select-destination" || mode === "select-start"
-                      ? 1
-                      : 0,
-                }}
-                onPress={() => {
-                  // (inputRef.current as unknown as { blur?(): void })?.blur?.();
-                  // (inputRef2.current as unknown as { blur?(): void })?.blur?.();
-                  Keyboard.dismiss();
-                  setMode("initial");
-                }}
-              >
-                <MaterialIcons
-                  name="close"
-                  size={24}
-                  color="#fdf7f7"
-                  style={{
-                    marginLeft: 5,
-                  }}
-                />
-              </TouchableOpacity>
-              <View
-                style={{ flexDirection: "column", justifyContent: "center" }}
-              >
-                {(mode === "initial" || mode == "select-start") && (
-                  <TextInput
-                    maxLength={15}
-                    autoCorrect={false}
-                    placeholder="Enter start..."
-                    style={{
-                      width: "100%",
-                      paddingVertical: 12,
-                      paddingHorizontal: 20,
-                      marginBottom: 20,
-                      backgroundColor: "#353131",
-                      color: "#cfc5c5",
-                      fontSize: 16,
-                      borderRadius: 24,
-                      textAlign: "center",
-                    }}
-                    placeholderTextColor="#cfc5c5"
-                    onChangeText={updateStartLocation}
-                    value={startLocation}
-                    onFocus={() => setMode("select-start")}
-                  />
-                )}
-                {((mode === "initial" && startLocationCoords !== "") ||
-                  mode == "select-destination") && (
-                  <TextInput
-                    autoCorrect={false}
-                    maxLength={15}
-                    placeholder="Enter destination..."
-                    style={{
-                      width: "100%",
-                      paddingVertical: 12,
-                      paddingHorizontal: 20,
-                      backgroundColor: "#353131",
-                      color: "#cfc5c5",
-                      fontSize: 16,
-                      borderRadius: 24,
-                      textAlign: "center",
-                    }}
-                    placeholderTextColor="#cfc5c5"
-                    onChangeText={updateDestination}
-                    value={destination}
-                    onFocus={() => setMode("select-destination")}
-                  />
-                )}
-              </View>
-
-              <View
-                style={{
-                  paddingVertical: 12,
-                  opacity: 0,
-                }}
-              >
-                <MaterialIcons name="close" size={24} color="black" />
-              </View>
-            </View>
-            {mode === "select-destination" && (
-              <View style={styles.suggestionsContainer}>
-                {searching && (
-                  <ActivityIndicator color="#2ecc71" style={{ padding: 12 }} />
-                )}
-
-                {suggestions.map((item, index) => (
-                  <TouchableOpacity
-                    key={`${item.lat}-${item.lng}-${index}`}
-                    style={styles.suggestionRow}
-                    onPress={async () => {
-                      let value = item.name;
-                      if (value.length > 15) {
-                        value = value.substring(0, 15);
-                      }
-                      setAlternateRoutes(false);
-                      setGenerateRoutes(true);
-                      setDestination(value);
-                      setDestinationCoords(`${item.lat},${item.lng}`);
-                      clearSuggestions();
-
-                      (inputRef.current as unknown as { blur?(): void })?.blur?.();
-                      Keyboard.dismiss();
-                      setMode("initial");
-                      // if (firstState) {
-                      //   await getCurrentLocation();
-                      //   setFirstState(false);
-                      // }
-                    }}
-                  >
-                    <MaterialIcons
-                      name="location-on"
-                      size={22}
-                      color="#2ecc71"
-                    />
-
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.suggestionTitle}>{item.name}</Text>
-
-                      <Text style={styles.suggestionSubtitle}>
-                        {[item.city, item.administrative]
-                          .filter(Boolean)
-                          .join(", ")}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-            {mode === "select-start" && (
-              <View style={styles.suggestionsContainer}>
-                {searching && (
-                  <ActivityIndicator color="#2ecc71" style={{ padding: 12 }} />
-                )}
-
-                {suggestions.map((item, index) => (
-                  <TouchableOpacity
-                    key={`${item.lat}-${item.lng}-${index}`}
-                    style={styles.suggestionRow}
-                    onPress={async () => {
-                      let value = item.name;
-                      if (value.length > 15) {
-                        value = value.substring(0, 15);
-                      }
-                      setAlternateRoutes(false);
-                      setGenerateRoutes(true);
-                      setStartLocation(value);
-                      setStartLocationCoords(`${item.lat},${item.lng}`);
-                      clearSuggestions();
-
-                      // (inputRef2.current as unknown as { blur?(): void })?.blur?.();
-                      // Keyboard.dismiss();
-                      setMode("select-destination");
-
-                      // await getCurrentLocation();
-                    }}
-                  >
-                    <MaterialIcons
-                      name="location-on"
-                      size={22}
-                      color="#2ecc71"
-                    />
-
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.suggestionTitle}>{item.name}</Text>
-
-                      <Text style={styles.suggestionSubtitle}>
-                        {[item.city, item.administrative]
-                          .filter(Boolean)
-                          .join(", ")}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-            {/* {(mode == "initial" || mode == "done") && generateRoutes && (
-              <View
-                style={{
-                  position: "absolute",
-                  bottom: BottomTabInset + 20,
-                  left: 20,
-                  right: 20,
-                }}
-              >
-                <TouchableOpacity
-                  onPress={handleFindRoute}
-                  disabled={finding}
-                  style={{
-                    backgroundColor: "#2ecc71",
-                    paddingVertical: 16,
-                    borderRadius: 16,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 10,
-                    opacity: finding ? 0.6 : 1,
-                  }}
-                >
-                  {finding ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <MaterialIcons
-                      name="directions-walk"
-                      size={24}
-                      color="#ffffff"
-                    />
-                  )}
-
-                  <Text
-                    style={{
-                      color: "#ffffff",
-                      fontSize: 17,
-                      fontWeight: "700",
-                    }}
-                  >
-                    {finding ? "Finding routes..." : "Find Routes"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            {alternateRoutes && (mode == "initial" || mode == "done") && (
-              <View
-                style={{
-                  position: "absolute",
-                  bottom: BottomTabInset + 20,
-                  left: 20,
-                  right: 20,
-                }}
-              >
-                <TouchableOpacity
-                  onPress={() => {
-                    setRoutesVisible(true);
-                  }}
-                  disabled={routesVisible}
-                  style={{
-                    backgroundColor: "#2ecc71",
-                    paddingVertical: 16,
-                    borderRadius: 16,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 10,
-                    opacity: finding ? 0.6 : 1,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#ffffff",
-                      fontSize: 17,
-                      fontWeight: "700",
-                    }}
-                  >
-                    View Alternate Routes
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )} */}
-            {(mode === "initial" || mode === "done") &&
-              (generateRoutes || alternateRoutes) && (
-                <View
-                  style={{
-                    position: "absolute",
-                    bottom: BottomTabInset + 20,
-                    left: 20,
-                    right: 20,
-                  }}
-                >
-                  <TouchableOpacity
-                    disabled={finding}
-                    onPress={() => {
-                      if (alternateRoutes) {
-                        setRoutesVisible(true);
-                      } else {
-                        void handleFindRoute();
-                      }
-                    }}
-                    style={{
-                      backgroundColor: "#2ecc71",
-                      paddingVertical: 16,
-                      borderRadius: 16,
-                      alignItems: "center",
-                      opacity: finding ? 0.6 : 1,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: "#ffffff",
-                        fontSize: 17,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {finding
-                        ? "Finding routes..."
-                        : alternateRoutes
-                          ? "View Alternate Routes"
-                          : "Find Routes"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-          </SafeAreaView>
-        </KeyboardAvoidingView>
+          markers={[
+            ...(startCoordinate
+              ? [{ coordinate: startCoordinate, color: "#22c55e", title: "Start" }]
+              : []),
+            ...(destinationCoordinate
+              ? [
+                  {
+                    coordinate: destinationCoordinate,
+                    color: "#ef4444",
+                    title: "Destination",
+                  },
+                ]
+              : []),
+          ]}
+        />
       </View>
-      {/* <BottomSheet
-        isPresented={routesVisible}
-        onDismiss={() => setRoutesVisible(false)}
-        snapPoints={["half", "full"]}
-        containerColor="#242424"
-      >
-        <ScrollView contentContainerStyle={{ padding: 20 }}>
-          <Text style={{ color: "white", fontSize: 22, marginBottom: 20 }}>
-            Choose a route
-          </Text>
 
-          {routes?.paths.map((route, i) => (
-            <TouchableOpacity
-              key={i}
-              onPress={() => {
-                setCurr(i);
-                setRoutesVisible(false);
-              }}
-              style={{
-                backgroundColor: curr === i ? "#08751a" : "#353131",
-                padding: 16,
-                borderRadius: 12,
-                marginBottom: 12,
-              }}
-            >
-              <Text style={{ color: "white", fontSize: 16 }}>
-                {ROUTE_META[i]?.title ?? `Route ${i + 1}`}
-              </Text>
-              <Text style={{ color: "#aaaaaa" }}>
-                {(route.total_cut_m / 1000).toFixed(2)} km
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </BottomSheet> */}
-      {/* <BottomSheet
-        isPresented={routesVisible}
-        onDismiss={() => setRoutesVisible(false)}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.foreground}
+        pointerEvents="box-none"
       >
-        <Column spacing={12}>
-          <UIText>Choose a route</UIText>
-        </Column>
-      </BottomSheet> */}
-      <Modal
-        visible={routesVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setRoutesVisible(false)}
-      >
-        <View style={{ flex: 1, justifyContent: "flex-end" }}>
-          {/* Tap outside the sheet to dismiss */}
-          <Pressable
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-            }}
-            onPress={() => setRoutesVisible(false)}
-          />
+        <SafeAreaView
+          style={styles.safeArea}
+          edges={["top", "left", "right"]}
+          pointerEvents="box-none"
+        >
+          {/* Planner card */}
+          <View style={[styles.planner, styles.shadow]}>
+            {inputRows.map(({ field, isStart, label, hasCoords, focused }) => (
+              <View key={field}>
+                <View
+                  style={[
+                    styles.inputRow,
+                    focused && { borderColor: "#22c55e" },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.dot,
+                      { backgroundColor: isStart ? "#22c55e" : "#ef4444" },
+                    ]}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder={
+                      isStart
+                        ? "Start — enter address or pin on map"
+                        : "Destination — enter address or pin on map"
+                    }
+                    placeholderTextColor="#5b6b7b"
+                    value={label}
+                    onChangeText={(text) => {
+                      if (isStart) setStartLocation(text);
+                      else setDestination(text);
+                      clearRoute();
+                    }}
+                    onFocus={() => setActiveField(field)}
+                    onBlur={() => {
+                      // Small delay so suggestion taps win the race.
+                      setTimeout(() => {
+                        setActiveField((f) => (f === field ? null : f));
+                      }, 180);
+                    }}
+                    onSubmitEditing={() => selectSuggestion(field, 0)}
+                    returnKeyType="search"
+                  />
+                  {isStart ? (
+                    <TouchableOpacity
+                      onPress={useMyLocation}
+                      hitSlop={8}
+                      style={styles.iconBtn}
+                    >
+                      {gpsBusy ? (
+                        <ActivityIndicator color="#22c55e" size="small" />
+                      ) : (
+                        <MaterialIcons
+                          name="my-location"
+                          size={17}
+                          color="#22c55e"
+                        />
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setMapPickMode(field);
+                      setActiveField(null);
+                      clearSuggestions();
+                    }}
+                    hitSlop={8}
+                    style={styles.iconBtn}
+                  >
+                    <MaterialIcons name="map" size={17} color="#93c5fd" />
+                  </TouchableOpacity>
+                  {!isStart ? (
+                    <TouchableOpacity
+                      onPress={swapEnds}
+                      hitSlop={8}
+                      style={styles.iconBtn}
+                    >
+                      <MaterialIcons name="swap-vert" size={17} color="#94a3b8" />
+                    </TouchableOpacity>
+                  ) : null}
+                  {hasCoords ? (
+                    <View style={styles.checkDot} />
+                  ) : null}
+                </View>
+              </View>
+            ))}
 
-          <View
-            style={{
-              backgroundColor: "#242424",
-              maxHeight: "60%",
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-            }}
-          >
-            {/* Header with close button */}
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                paddingHorizontal: 20,
-                paddingTop: 16,
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 20, fontWeight: "700" }}>
-                Choose a route
+            {/* Suggestions for the focused field */}
+            {activeField && (searching || suggestions.length > 0) ? (
+              <View style={[styles.suggestions, styles.shadow]}>
+                {searching ? (
+                  <View style={styles.suggestionRow}>
+                    <ActivityIndicator color="#22c55e" size="small" />
+                    <Text style={styles.suggestionSub}>Searching…</Text>
+                  </View>
+                ) : null}
+                {suggestions.map((s, i) => (
+                  <Pressable
+                    key={`${s.lat},${s.lng},${i}`}
+                    style={styles.suggestionRow}
+                    onPress={() => selectSuggestion(activeField!, i)}
+                  >
+                    <MaterialIcons
+                      name="location-on"
+                      size={16}
+                      color={activeField === "start" ? "#22c55e" : "#ef4444"}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.suggestionTitle}>{s.name}</Text>
+                      {!!(s.city || s.administrative) && (
+                        <Text style={styles.suggestionSub} numberOfLines={1}>
+                          {[s.city, s.administrative].filter(Boolean).join(", ")}
+                        </Text>
+                      )}
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+
+          {mapPickMode ? (
+            <View style={[styles.pickBanner, styles.shadow]}>
+              <MaterialIcons name="touch-app" size={15} color="#93c5fd" />
+              <Text style={styles.pickText}>
+                Tap the map to set{" "}
+                {mapPickMode === "start" ? "start" : "destination"}
               </Text>
-              <TouchableOpacity
-                onPress={() => setRoutesVisible(false)}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              >
-                <MaterialIcons name="close" size={24} color="#cfc5c5" />
+              <TouchableOpacity onPress={() => setMapPickMode(null)} hitSlop={8}>
+                <MaterialIcons name="close" size={16} color="#94a3b8" />
               </TouchableOpacity>
             </View>
+          ) : null}
 
-            <ScrollView contentContainerStyle={{ padding: 20 }}>
-              {routes?.paths.map((route, i) => {
-                const meta = ROUTE_META[Math.min(i, ROUTE_META.length - 1)];
-                const km = (route.total_cut_m / 1000).toFixed(2);
-                const mins = Math.max(
-                  1,
-                  Math.round((route.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
-                );
+          {routeError && !finding ? (
+            <View style={[styles.errorCard, styles.shadow]}>
+              <MaterialIcons name="error-outline" size={15} color="#f87171" />
+              <Text style={styles.errorText} numberOfLines={2}>
+                {routeError}
+              </Text>
+            </View>
+          ) : null}
 
-                return (
-                  <TouchableOpacity
-                    key={`route-${i}`}
-                    onPress={() => {
-                      setCurr(i);
-                      if (routeCoords?.[i]?.length) {
-                        mapRef.current?.fitToCoordinates(routeCoords[i], {
-                          edgePadding: {
-                            top: 120,
-                            right: 60,
-                            bottom: windowHeight * 0.6,
-                            left: 60,
-                          },
-                          animated: true,
-                        });
-                      }
-                    }}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      backgroundColor: i === curr ? "#08751a" : "#353131",
-                      padding: 16,
-                      borderRadius: 12,
-                      marginBottom: 12,
-                    }}
-                  >
-                    <View>
-                      <Text
-                        style={{
-                          color: "#fff",
-                          fontSize: 16,
-                          fontWeight: "600",
-                        }}
-                      >
-                        {meta.title}
-                      </Text>
-                      <Text
-                        style={{
-                          color: meta.color,
-                          fontSize: 12,
-                          fontWeight: "600",
-                        }}
-                      >
-                        {meta.tag}
-                      </Text>
-                    </View>
-
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text
-                        style={{
-                          color: "#fff",
-                          fontSize: 16,
-                          fontWeight: "700",
-                        }}
-                      >
-                        {mins} min
-                      </Text>
-                      <Text style={{ color: "#aaaaaa", fontSize: 12 }}>
-                        {km} km
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+          {!routes ? (
+            <View style={styles.ctaWrap} pointerEvents="box-none">
+              <TouchableOpacity
+                style={[
+                  styles.cta,
+                  styles.shadow,
+                  (finding || !startSet || !destSet) && { opacity: 0.55 },
+                ]}
+                onPress={handleFindRoute}
+                disabled={finding || !startSet || !destSet}
+                activeOpacity={0.8}
+              >
+                {finding ? (
+                  <ActivityIndicator color="#0c1210" size="small" />
+                ) : (
+                  <MaterialIcons name="directions-walk" size={19} color="#0c1210" />
+                )}
+                <Text style={styles.ctaText}>
+                  {finding ? "Finding routes…" : "Find Routes"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[styles.resultCard, styles.shadow]}>
+              <View style={styles.resultHead}>
+                <Text style={styles.resultTitle}>Your routes</Text>
+                <TouchableOpacity onPress={clearAll} hitSlop={8}>
+                  <MaterialIcons name="close" size={17} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.chipRow}>
+                {routes.paths.map((p, i) => {
+                  const meta = ROUTE_META[Math.min(i, ROUTE_META.length - 1)];
+                  const km = (p.total_cut_m / 1000).toFixed(2);
+                  const mins = Math.max(
+                    1,
+                    Math.round((p.total_cut_m / 1000 / WALK_SPEED_KMH) * 60),
+                  );
+                  const selected = i === curr;
+                  return (
+                    <Pressable
+                      key={`chip-${i}`}
+                      onPress={() => selectRouteChip(i)}
+                      style={[
+                        styles.chip,
+                        selected && {
+                          borderColor: meta.color,
+                          backgroundColor: `${meta.color}26`,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[styles.chipDot, { backgroundColor: meta.color }]}
+                      />
+                      <View style={styles.chipBody}>
+                        <Text style={styles.chipTitle}>{meta.title}</Text>
+                        <Text style={styles.chipMeta}>
+                          {mins} min · {km} km · {meta.subtitle}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+        </SafeAreaView>
+      </KeyboardAvoidingView>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "transparent" },
+  container: { flex: 1, backgroundColor: "#0b0f14" },
+  mapWrap: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
+  map: { flex: 1 },
+  foreground: { flex: 1, position: "relative" },
   safeArea: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    maxWidth: MaxContentWidth,
-    alignSelf: "center",
-    width: "100%",
+    paddingTop: Platform.OS === "web" ? 70 : 0,
+    paddingHorizontal: Spacing.three,
+    gap: Spacing.two,
   },
-  header: {
+  shadow: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 14,
+  },
+  planner: {
+    backgroundColor: "rgba(15,20,26,0.94)",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    padding: Spacing.two + 2,
+    gap: Spacing.two,
+  },
+  inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.one,
-    paddingTop: Spacing.one,
-    paddingBottom: Spacing.one,
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+    paddingHorizontal: 10,
+    height: 46,
   },
-  headerSide: {
-    width: 72,
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  input: { flex: 1, color: "#e2e8f0", fontSize: 15, paddingVertical: 0 },
+  iconBtn: { paddingHorizontal: 4 },
+  checkDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#22c55e",
+    marginRight: 2,
   },
-  headerTitle: {
-    flex: 1,
-    alignItems: "center",
-  },
-  suggestionsContainer: {
-    marginTop: 25,
-    backgroundColor: "#242424",
-    borderRadius: 16,
+  suggestions: {
+    backgroundColor: "rgba(13,17,22,0.98)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
     overflow: "hidden",
-    zIndex: 100,
-    elevation: 10,
+    maxHeight: 220,
   },
-
   suggestionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#454545",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.06)",
   },
-
-  suggestionTitle: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  suggestionSubtitle: {
-    color: "#aaaaaa",
-    fontSize: 12,
-    marginTop: 3,
-  },
-  dismissKeyboardButton: {
-    width: 72,
-    minHeight: 36,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: Spacing.one,
-  },
-  title: {
-    textAlign: "center",
-    fontFamily: "HelveticaNeue-Bold",
-    color: "#1A73E8",
-  },
-  tagline: {
-    textAlign: "center",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    fontWeight: "900",
-    fontSize: 10,
-    color: "#1A73E8",
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    gap: Spacing.three,
-    paddingBottom: Spacing.three,
-  },
-  plannerContent: {
-    gap: Spacing.three,
-  },
-  mapCard: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: "100%",
-    width: "100%",
-    borderRadius: 0,
-    overflow: "hidden",
-    borderWidth: 1,
-    zIndex: 0,
-    elevation: 0,
-  },
-  map: { width: "100%", height: "100%", top: 0, left: 0, right: 0, bottom: 0 },
-  plannerCard: {
-    gap: Spacing.two,
-    backgroundColor: "rgba(255, 255, 255, 0.94)",
-    borderWidth: 1,
-    borderColor: "rgba(226, 232, 240, 0.9)",
-    borderRadius: Spacing.three,
-    padding: Spacing.three,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-  },
-  backgroundStyle: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    minHeight: "100%",
-    backgroundColor: "black",
-  },
-  plannerHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  plannerLabel: {
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-    fontSize: 11,
-    top: -20,
-    color: "#2563EB",
-  },
-  svcPill: {
+  suggestionTitle: { color: "#e2e8f0", fontSize: 14, fontWeight: "600" },
+  suggestionSub: { color: "#64748b", fontSize: 11.5, marginTop: 1 },
+  pickBanner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: "rgba(149,165,166,0.15)",
-    top: -15,
-    left: 110,
-  },
-  svcDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#2ecc71" },
-  svcPillText: { fontSize: 11 },
-  textChip: {
-    borderWidth: 1,
-    borderColor: "rgba(52, 152, 219, 0.4)",
-    backgroundColor: "rgba(52, 152, 219, 0.1)",
-    borderRadius: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    minHeight: 36,
-    justifyContent: "center",
-    top: -9,
-    left: -70,
-  },
-  textChipText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#3498db",
-  },
-  pickRow: {
-    flexDirection: "row",
-    gap: Spacing.two,
-  },
-  pickChip: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "rgba(126, 123, 123, 0.35)",
-    backgroundColor: "rgba(126, 123, 123, 0.08)",
-    borderRadius: Spacing.three,
-    paddingVertical: Spacing.two,
-    minHeight: 40,
-  },
-  pickChipActive: {
-    backgroundColor: "#3498db",
-    borderColor: "#3498db",
-  },
-  pickChipText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  pickChipTextActive: {
-    color: "#ffffff",
-  },
-  pickHint: {
-    textAlign: "center",
-    fontStyle: "italic",
-  },
-  fieldRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.two,
-  },
-  iconBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: Spacing.three,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  input: {
-    flex: 1,
-    height: 48,
-    borderWidth: 1,
-    borderRadius: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    fontSize: 15,
-    backgroundColor: "transparent",
-    color: "#000000",
-  },
-  clearButton: {
-    width: 44,
-    height: 44,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: Spacing.four,
-  },
-  foregroundContainer: {
-    zIndex: 1,
-    elevation: 1,
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    position: "absolute",
-  },
-  swapButton: {
+    gap: 8,
     alignSelf: "center",
-    width: 36,
-    height: 36,
-    marginTop: -Spacing.three,
-    marginBottom: -Spacing.two,
-    borderRadius: Spacing.four,
-    borderWidth: 1,
-    borderColor: "rgba(52, 152, 219, 0.4)",
-    backgroundColor: "rgba(52, 152, 219, 0.12)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 2,
-  },
-  actionButton: {
-    width: "100%",
-    height: 48,
-    backgroundColor: "#2ecc71",
-    borderRadius: Spacing.three,
-    flexDirection: "row",
-    gap: Spacing.one,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: Spacing.one,
-  },
-  actionButtonText: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  statusCard: {
-    flexDirection: "row",
-    gap: Spacing.two,
-    alignItems: "center",
     paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.three,
-  },
-  statusCardError: {
+    paddingVertical: Spacing.two,
+    borderRadius: 999,
+    backgroundColor: "rgba(13,18,24,0.94)",
     borderWidth: 1,
-    borderColor: "rgba(231, 76, 60, 0.35)",
+    borderColor: "rgba(147,197,253,0.4)",
   },
-  statusText: {
-    fontSize: 13,
-    lineHeight: 18,
-    flex: 1,
-    fontWeight: "500",
-  },
-  summaryCard: {
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.three,
-  },
-  summaryRow: {
+  pickText: { color: "#dbeafe", fontSize: 12.5, fontWeight: "600" },
+  errorCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.two,
+    gap: 8,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: 14,
+    backgroundColor: "rgba(127,29,29,0.3)",
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.35)",
   },
-  summaryRowLast: {
+  errorText: { color: "#fca5a5", fontSize: 12, flex: 1 },
+  ctaWrap: { flex: 1, justifyContent: "flex-end", paddingBottom: Spacing.four },
+  cta: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: Spacing.five,
+    paddingVertical: 14,
+    borderRadius: 999,
+    backgroundColor: "#22c55e",
+  },
+  ctaText: { color: "#0c1210", fontSize: 15.5, fontWeight: "800" },
+  resultCard: {
+    backgroundColor: "rgba(15,20,26,0.96)",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    padding: Spacing.two,
+    marginBottom: Spacing.two,
+  },
+  resultHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 2,
     paddingBottom: Spacing.one,
   },
-  summaryDot: {
-    width: 10,
-    height: 10,
-    borderRadius: Spacing.four,
-    backgroundColor: "#2ecc71",
-  },
-  summaryDotGoal: { backgroundColor: "#e74c3c" },
-  summaryText: {
-    fontSize: 13,
-    fontWeight: "600",
-    flexShrink: 1,
-  },
-  summaryMeta: {
-    lineHeight: 18,
-  },
-  helper: {
-    textAlign: "center",
-    opacity: 0.65,
-    paddingBottom: BottomTabInset + Spacing.three,
-    paddingHorizontal: Spacing.two,
-  },
-  mapDimOverlay: {
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    position: "absolute",
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    zIndex: 0,
-  },
-  mapPickRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  mapPickButton: {
+  resultTitle: { color: "#f1f5f9", fontSize: 13, fontWeight: "800" },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.two },
+  chip: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    gap: 8,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
+    borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one + 2,
   },
-  mapPickButtonActive: {
-    borderColor: "#3498db",
-    backgroundColor: "#eff6ff",
-  },
-  mapPickButtonText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#334155",
-  },
+  chipDot: { width: 10, height: 10, borderRadius: 5 },
+  chipBody: { maxWidth: 118 },
+  chipTitle: { color: "#f1f5f9", fontSize: 12.5, fontWeight: "700" },
+  chipMeta: { color: "#94a3b8", fontSize: 10.5 },
 });

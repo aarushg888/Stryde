@@ -1,15 +1,18 @@
 import { api } from "@/api/api";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { Colors, Spacing } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
+import { MaterialIcons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
   TextInput,
   TouchableOpacity,
-  useColorScheme,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -38,12 +41,31 @@ const DEFAULT_PREFS: Prefs = {
   avoidObstacles: true,
 };
 
-export default function PreferencesScreen() {
-  const scheme = useColorScheme();
-  const isDark = scheme === "dark";
-  const colors = Colors[isDark ? "dark" : "light"];
+const FLAG_META = {
+  preferSidewalks: {
+    title: "Prefer sidewalks",
+    desc: "Skip streets without dedicated walkways",
+    icon: "directions-walk" as const,
+  },
+  avoidObstacles: {
+    title: "Protected crossings",
+    desc: "Cross at signals and marked crosswalks",
+    icon: "traffic" as const,
+  },
+  wellLitOnly: {
+    title: "Well-lit streets",
+    desc: "Brighter paths for evening walks",
+    icon: "lightbulb" as const,
+  },
+  lowTraffic: {
+    title: "Low-traffic streets",
+    desc: "Avoid high-speed arterials and exhaust",
+    icon: "volume-off" as const,
+  },
+} as const;
 
-  // User Preference State Management Hooks
+export default function PreferencesScreen() {
+  // User preference state management hooks
   const [routingMode, setRoutingMode] = useState<RoutingMode>(
     DEFAULT_PREFS.routingMode,
   );
@@ -55,9 +77,12 @@ export default function PreferencesScreen() {
   const [avoidObstacles, setAvoidObstacles] = useState(
     DEFAULT_PREFS.avoidObstacles,
   );
+  const [saveState, setSaveState] = useState<"loading" | "idle" | "saved" | "error">(
+    "loading",
+  );
 
   // Persistence: hydrate from the backend profile, then push every change.
-  const hydrated = useRef(false);
+  const hydratedRef = useRef(false);
   useEffect(() => {
     api
       .getPreferences()
@@ -74,36 +99,41 @@ export default function PreferencesScreen() {
         /* first run or backend offline — defaults are fine */
       })
       .finally(() => {
-        hydrated.current = true;
+        hydratedRef.current = true;
+        setSaveState("idle");
       });
   }, []);
 
   useEffect(() => {
-    if (!hydrated.current) return;
-    const prefs: Prefs = {
-      routingMode,
-      preferSidewalks,
-      wellLitOnly,
-      lowTraffic,
-      avoidObstacles,
-    };
-    api.savePreferences(prefs).catch(() => {
-      /* retry on the next change */
-    });
+    if (!hydratedRef.current) return;
+    setSaveState("idle");
+    const t = setTimeout(() => {
+      const prefs: Prefs = {
+        routingMode,
+        preferSidewalks,
+        wellLitOnly,
+        lowTraffic,
+        avoidObstacles,
+      };
+      api
+        .savePreferences(prefs)
+        .then(() => setSaveState("saved"))
+        .catch(() => setSaveState("error"));
+    }, 550);
+    return () => clearTimeout(t);
   }, [routingMode, preferSidewalks, wellLitOnly, lowTraffic, avoidObstacles]);
 
-  // Chatbot State Management Hooks
+  // Route assistant (rules-based, no external LLM keys needed)
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
-      text: "Hello! How can I help you customize your travel preferences today?",
+      text: "Hi! I can help you tune your route settings. Try: “I use a wheelchair” or “make my walks calmer”.",
       sender: "ai",
     },
   ]);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Groq API Call Handler
   const handleSendMessage = async () => {
     if (!inputText.trim() || isLoading) return;
 
@@ -118,7 +148,7 @@ export default function PreferencesScreen() {
     setIsLoading(true);
 
     try {
-      const { reply } = await api.chat({
+      const { reply, patch } = await api.chat({
         message: userMessage.text,
         routingMode,
         preferSidewalks,
@@ -131,6 +161,17 @@ export default function PreferencesScreen() {
         ...prev,
         { id: (Date.now() + 1).toString(), text: reply, sender: "ai" },
       ]);
+
+      // The assistant can directly apply settings it mentioned.
+      if (patch && typeof patch === "object") {
+        const p = patch as Record<string, unknown>;
+        if (p.routingMode === "wheelchair") setRoutingMode("wheelchair");
+        if (p.routingMode === "standard") setRoutingMode("standard");
+        if (typeof p.preferSidewalks === "boolean") setPreferSidewalks(p.preferSidewalks);
+        if (typeof p.wellLitOnly === "boolean") setWellLitOnly(p.wellLitOnly);
+        if (typeof p.lowTraffic === "boolean") setLowTraffic(p.lowTraffic);
+        if (typeof p.avoidObstacles === "boolean") setAvoidObstacles(p.avoidObstacles);
+      }
     } catch (error) {
       setMessages((prev) => [
         ...prev,
@@ -148,6 +189,13 @@ export default function PreferencesScreen() {
     }
   };
 
+  const flags = {
+    preferSidewalks,
+    avoidObstacles,
+    wellLitOnly,
+    lowTraffic,
+  } as const;
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
@@ -155,241 +203,207 @@ export default function PreferencesScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Header Block */}
+          {/* Header */}
           <View style={styles.header}>
             <ThemedText type="title" style={styles.title}>
               Preferences
             </ThemedText>
             <ThemedText style={styles.subtitle}>
-              Customize your walking parameters to generate the safest
-              pedestrian routes.
+              Tell Stryde how you move — routes are re-scored to match.
             </ThemedText>
           </View>
 
-          {/* Section 1: Accessibility Base Mode Selector */}
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionLabel}>
-              1. Routing Access Mode
-            </ThemedText>
-            <View
-              style={[
-                styles.toggleGroupContainer,
-                { borderColor: colors.backgroundElement },
-              ]}
-            >
-              <TouchableOpacity
-                style={[
-                  styles.toggleButton,
-                  routingMode === "standard" && { backgroundColor: "#3498db" },
-                ]}
-                onPress={() => setRoutingMode("standard")}
-                activeOpacity={0.8}
-              >
-                <ThemedText
-                  style={[
-                    styles.toggleButtonText,
-                    routingMode === "standard" && styles.textActive,
-                  ]}
-                >
-                  Standard walking
-                </ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.toggleButton,
-                  routingMode === "wheelchair" && {
-                    backgroundColor: "#3498db",
+          {/* Mode selector */}
+          <View style={styles.card}>
+            <ThemedText style={styles.cardLabel}>How do you walk?</ThemedText>
+            <View style={styles.modeGrid}>
+              {(
+                [
+                  {
+                    id: "standard",
+                    label: "Standard walking",
+                    icon: "directions-walk" as const,
+                    desc: "Full network, normal speeds",
                   },
-                ]}
-                onPress={() => setRoutingMode("wheelchair")}
-                activeOpacity={0.8}
-              >
-                <ThemedText
-                  style={[
-                    styles.toggleButtonText,
-                    routingMode === "wheelchair" && styles.textActive,
-                  ]}
-                >
-                  Wheelchair / accessible
-                </ThemedText>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Section 2: Infrastructure Safety Flags */}
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionLabel}>
-              2. Path & Infrastructure Settings
-            </ThemedText>
-            <View
-              style={[
-                styles.settingRow,
-                { borderBottomWidth: 1, borderColor: colors.backgroundElement },
-              ]}
-            >
-              <View style={styles.settingTextContainer}>
-                <ThemedText style={styles.settingTitle}>
-                  Prioritize Sidewalks
-                </ThemedText>
-                <ThemedText style={styles.settingDescription}>
-                  Avoid paths missing dedicated pedestrian walkways.
-                </ThemedText>
-              </View>
-              <Switch
-                value={preferSidewalks}
-                onValueChange={setPreferSidewalks}
-                trackColor={{ false: "#767577", true: "#2ecc71" }}
-                thumbColor="#ffffff"
-              />
-            </View>
-            <View style={styles.settingRow}>
-              <View style={styles.settingTextContainer}>
-                <ThemedText style={styles.settingTitle}>
-                  Protected Crossings Only
-                </ThemedText>
-                <ThemedText style={styles.settingDescription}>
-                  Route through marked crosswalks and traffic signals.
-                </ThemedText>
-              </View>
-              <Switch
-                value={avoidObstacles}
-                onValueChange={setAvoidObstacles}
-                trackColor={{ false: "#767577", true: "#2ecc71" }}
-                thumbColor="#ffffff"
-              />
-            </View>
-          </View>
-
-          {/* Section 3: Environmental Safety Filters */}
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionLabel}>
-              3. Environmental Conditions
-            </ThemedText>
-            <View
-              style={[
-                styles.settingRow,
-                { borderBottomWidth: 1, borderColor: colors.backgroundElement },
-              ]}
-            >
-              <View style={styles.settingTextContainer}>
-                <ThemedText style={styles.settingTitle}>
-                  Enhanced Safety Lighting
-                </ThemedText>
-                <ThemedText style={styles.settingDescription}>
-                  Prioritize well-lit streets during evening strolls.
-                </ThemedText>
-              </View>
-              <Switch
-                value={wellLitOnly}
-                onValueChange={setWellLitOnly}
-                trackColor={{ false: "#767577", true: "#2ecc71" }}
-                thumbColor="#ffffff"
-              />
-            </View>
-            <View style={styles.settingRow}>
-              <View style={styles.settingTextContainer}>
-                <ThemedText style={styles.settingTitle}>
-                  Low Traffic Exposure
-                </ThemedText>
-                <ThemedText style={styles.settingDescription}>
-                  Steer away from high-speed arterial roadways and exhaust.
-                </ThemedText>
-              </View>
-              <Switch
-                value={lowTraffic}
-                onValueChange={setLowTraffic}
-                trackColor={{ false: "#767577", true: "#2ecc71" }}
-                thumbColor="#ffffff"
-              />
-            </View>
-          </View>
-
-          {/* Configuration State Tracker Display */}
-          <View
-            style={[
-              styles.statusFeedbackBox,
-              { backgroundColor: colors.backgroundElement },
-            ]}
-          >
-            <ThemedText style={styles.statusBoxText}>
-              Stryde safety filters configured for{" "}
-              <ThemedText style={{ fontWeight: "700" }}>
-                {routingMode === "standard"
-                  ? "Standard Pedestrian"
-                  : "Wheelchair Access"}
-              </ThemedText>{" "}
-              metrics.
-            </ThemedText>
-          </View>
-
-          {/* --- NEW SECTION: AI Chatbot Integration --- */}
-          <View
-            style={[
-              styles.chatSection,
-              { borderColor: colors.backgroundElement },
-            ]}
-          >
-            <ThemedText style={styles.sectionLabel}>
-              Stryde Route Assistant
-            </ThemedText>
-
-            {/* Embedded inner messages area */}
-            <View style={styles.chatWindow}>
-              {messages.map((msg) => (
-                <View
-                  key={msg.id}
-                  style={[
-                    styles.messageBubble,
-                    msg.sender === "user"
-                      ? styles.userBubble
-                      : [
-                          styles.aiBubble,
-                          { backgroundColor: colors.backgroundElement },
-                        ],
-                  ]}
-                >
-                  <ThemedText
+                  {
+                    id: "wheelchair",
+                    label: "Wheelchair / accessible",
+                    icon: "accessible" as const,
+                    desc: "Avoids curbs, stairs, steep grades",
+                  },
+                ] as const
+              ).map((opt) => {
+                const selected = routingMode === opt.id;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
                     style={[
-                      styles.messageText,
-                      msg.sender === "user" && { color: "#fff" },
+                      styles.modeCard,
+                      selected && {
+                        borderColor: "#22c55e",
+                        backgroundColor: "rgba(34,197,94,0.12)",
+                      },
+                    ]}
+                    onPress={() => setRoutingMode(opt.id)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.modeIconWrap}>
+                      <MaterialIcons
+                        name={opt.icon}
+                        size={20}
+                        color={selected ? "#22c55e" : "#94a3b8"}
+                      />
+                    </View>
+                    <ThemedText
+                      style={[
+                        styles.modeLabel,
+                        selected && { color: "#4ade80" },
+                      ]}
+                    >
+                      {opt.label}
+                    </ThemedText>
+                    <ThemedText style={styles.modeDesc}>{opt.desc}</ThemedText>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Safety flags */}
+          <View style={styles.card}>
+            <View style={styles.cardHeadRow}>
+              <ThemedText style={styles.cardLabel}>Safety priorities</ThemedText>
+              {saveState !== "loading" ? (
+                <View
+                  style={[
+                    styles.savedChip,
+                    saveState === "saved" && styles.savedChipOn,
+                    saveState === "error" && styles.savedChipErr,
+                  ]}
+                >
+                  {saveState === "saved" ? (
+                    <>
+                      <MaterialIcons name="check-circle" size={13} color="#4ade80" />
+                      <ThemedText style={styles.savedText}>Saved</ThemedText>
+                    </>
+                  ) : saveState === "error" ? (
+                    <>
+                      <MaterialIcons name="wifi-off" size={13} color="#f87171" />
+                      <ThemedText style={[styles.savedText, { color: "#f87171" }]}>
+                        Offline
+                      </ThemedText>
+                    </>
+                  ) : (
+                    <ActivityIndicator size="small" color="#94a3b8" />
+                  )}
+                </View>
+              ) : null}
+            </View>
+            {(Object.keys(FLAG_META) as (keyof typeof FLAG_META)[]).map((key) => {
+              const meta = FLAG_META[key];
+              const on = flags[key];
+              return (
+                <View
+                  key={key}
+                  style={[styles.flagRow, on && styles.flagRowOn]}
+                >
+                  <View
+                    style={[
+                      styles.flagIcon,
+                      on && { backgroundColor: "rgba(34,197,94,0.14)" },
                     ]}
                   >
-                    {msg.text}
-                  </ThemedText>
+                    <MaterialIcons
+                      name={meta.icon}
+                      size={18}
+                      color={on ? "#22c55e" : "#64748b"}
+                    />
+                  </View>
+                  <View style={styles.flagTextWrap}>
+                    <ThemedText style={styles.flagTitle} numberOfLines={1}>
+                      {meta.title}
+                    </ThemedText>
+                    <ThemedText style={styles.flagDesc} numberOfLines={1}>
+                      {meta.desc}
+                    </ThemedText>
+                  </View>
+                  <Switch
+                    value={on}
+                    onValueChange={(v) => {
+                      if (key === "preferSidewalks") setPreferSidewalks(v);
+                      else if (key === "avoidObstacles") setAvoidObstacles(v);
+                      else if (key === "wellLitOnly") setWellLitOnly(v);
+                      else setLowTraffic(v);
+                    }}
+                    trackColor={{ false: "rgba(148,163,184,0.3)", true: "#22c55e" }}
+                    thumbColor="#fff"
+                  />
                 </View>
-              ))}
-            </View>
-
-            {/* Input Bar Layout */}
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    color: isDark ? "#fff" : "#000",
-                    borderColor: colors.backgroundElement,
-                  },
-                ]}
-                placeholder="Ask about your route safety..."
-                placeholderTextColor={isDark ? "#888" : "#aaa"}
-                value={inputText}
-                onChangeText={setInputText}
-                editable={!isLoading}
-              />
-              <TouchableOpacity
-                style={[
-                  styles.sendButton,
-                  { backgroundColor: isLoading ? "#bdc3c7" : "#3498db" },
-                ]}
-                onPress={handleSendMessage}
-                disabled={isLoading}
-              >
-                <ThemedText style={styles.sendButtonText}>
-                  {isLoading ? "..." : "Send"}
-                </ThemedText>
-              </TouchableOpacity>
-            </View>
+              );
+            })}
+            <ThemedText style={styles.modeSummary}>
+              {routingMode === "wheelchair" ? "Wheelchair mode" : "Standard mode"} ·{" "}
+              {Object.values(flags).filter(Boolean).length} of 4 flags on — every
+              change is saved automatically.
+            </ThemedText>
           </View>
+
+          {/* Route assistant */}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <View style={styles.card}>
+              <View style={styles.cardHeadRow}>
+                <ThemedText style={styles.cardLabel}>Route assistant</ThemedText>
+                <MaterialIcons name="smart-toy" size={16} color="#94a3b8" />
+              </View>
+              <View style={styles.chatWindow}>
+                {messages.map((msg) => (
+                  <View
+                    key={msg.id}
+                    style={[
+                      styles.messageBubble,
+                      msg.sender === "user" ? styles.userBubble : styles.aiBubble,
+                    ]}
+                  >
+                    <ThemedText
+                      style={[
+                        styles.messageText,
+                        msg.sender === "user" && { color: "#0c1210" },
+                      ]}
+                    >
+                      {msg.text}
+                    </ThemedText>
+                  </View>
+                ))}
+                {isLoading ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#22c55e"
+                    style={{ alignSelf: "flex-start", marginLeft: Spacing.one }}
+                  />
+                ) : null}
+              </View>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ask about your route settings…"
+                  placeholderTextColor="#5b6b7b"
+                  value={inputText}
+                  onChangeText={setInputText}
+                  editable={!isLoading}
+                  onSubmitEditing={() => void handleSendMessage()}
+                />
+                <TouchableOpacity
+                  style={styles.sendButton}
+                  onPress={() => void handleSendMessage()}
+                  disabled={isLoading}
+                >
+                  <MaterialIcons name="send" size={17} color="#0c1210" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -397,147 +411,120 @@ export default function PreferencesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    // backgroundColor: "#F8FAFC",
-  },
-  safeArea: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  safeArea: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.four,
-    gap: Spacing.five,
-  },
-  header: {
-    marginBottom: Spacing.one,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "900",
-    marginBottom: Spacing.one,
-  },
-  subtitle: {
-    fontSize: 15,
-    opacity: 0.6,
-    lineHeight: 20,
-  },
-  section: {
+    paddingHorizontal: Spacing.three,
+    paddingTop: Platform.OS === 'web' ? 84 : Spacing.three,
+    paddingBottom: Spacing.three,
     gap: Spacing.three,
   },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    opacity: 0.8,
-  },
-  toggleGroupContainer: {
-    flexDirection: "row",
+  header: { gap: Spacing.one, marginBottom: Spacing.one },
+  title: { fontSize: 26, fontWeight: "900" },
+  subtitle: { fontSize: 14, opacity: 0.65, lineHeight: 20 },
+  card: {
+    backgroundColor: "rgba(148,163,184,0.08)",
+    borderRadius: 16,
     borderWidth: 1,
-    borderRadius: Spacing.three,
-    overflow: "hidden",
-    height: 46,
-    width: "100%",
-  },
-  toggleButton: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.01)",
-  },
-  toggleButtonText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  textActive: {
-    color: "#ffffff",
-    fontWeight: "700",
-  },
-  settingRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: Spacing.three,
-  },
-  settingTextContainer: {
-    flex: 1,
-    paddingRight: Spacing.four,
-  },
-  settingTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  settingDescription: {
-    fontSize: 12,
-    opacity: 0.5,
-    lineHeight: 16,
-  },
-  statusFeedbackBox: {
-    width: "100%",
+    borderColor: "rgba(148,163,184,0.14)",
     padding: Spacing.three,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  statusBoxText: {
-    fontSize: 12,
-    textAlign: "center",
-    lineHeight: 18,
-    opacity: 0.8,
-  },
-  /* Chatbot Styling Rules */
-  chatSection: {
-    gap: Spacing.three,
-    marginTop: Spacing.two,
-    borderTopWidth: 1,
-    paddingTop: Spacing.five,
-  },
-  chatWindow: {
-    width: "100%",
     gap: Spacing.two,
   },
+  cardHeadRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  cardLabel: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    opacity: 0.75,
+  },
+  modeGrid: { flexDirection: "row", gap: Spacing.two },
+  modeCard: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.22)",
+    backgroundColor: "rgba(148,163,184,0.05)",
+    padding: Spacing.two + 2,
+    gap: 3,
+  },
+  modeIconWrap: { marginBottom: 2 },
+  modeLabel: { fontSize: 13, fontWeight: "800", color: "#e2e8f0" },
+  modeDesc: { fontSize: 11, opacity: 0.55 },
+  savedChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(148,163,184,0.14)",
+  },
+  savedChipOn: { backgroundColor: "rgba(34,197,94,0.12)" },
+  savedChipErr: { backgroundColor: "rgba(239,68,68,0.12)" },
+  savedText: { fontSize: 11, fontWeight: "700", color: "#4ade80" },
+  flagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.two,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.18)",
+    backgroundColor: "rgba(148,163,184,0.04)",
+    padding: Spacing.two + 2,
+  },
+  flagRowOn: { borderColor: "rgba(34,197,94,0.45)" },
+  flagIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(148,163,184,0.12)",
+  },
+  flagTextWrap: { flex: 1 },
+  flagTitle: { fontSize: 14, fontWeight: "700", color: "#e2e8f0" },
+  flagDesc: { fontSize: 11.5, opacity: 0.5, marginTop: 1 },
+  modeSummary: { fontSize: 11.5, opacity: 0.55, marginTop: Spacing.one },
+  chatWindow: { gap: Spacing.two },
   messageBubble: {
-    maxWidth: "85%",
-    padding: Spacing.three,
-    borderRadius: Spacing.three,
+    maxWidth: "88%",
+    padding: Spacing.two + 2,
+    borderRadius: 14,
   },
   userBubble: {
-    backgroundColor: "#3498db",
+    backgroundColor: "#a3e635",
     alignSelf: "flex-end",
-    borderBottomRightRadius: 2,
+    borderBottomRightRadius: 4,
   },
   aiBubble: {
+    backgroundColor: "rgba(148,163,184,0.12)",
     alignSelf: "flex-start",
-    borderBottomLeftRadius: 2,
+    borderBottomLeftRadius: 4,
   },
-  messageText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  inputContainer: {
-    flexDirection: "row",
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
+  messageText: { fontSize: 13.5, lineHeight: 19 },
+  inputContainer: { flexDirection: "row", gap: Spacing.two },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: Spacing.three,
+    borderColor: "rgba(148,163,184,0.22)",
+    borderRadius: 12,
     paddingHorizontal: Spacing.three,
-    height: 44,
+    height: 42,
     fontSize: 14,
+    color: "#e2e8f0",
+    backgroundColor: "rgba(148,163,184,0.05)",
   },
   sendButton: {
-    justifyContent: "center",
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#a3e635",
     alignItems: "center",
-    paddingHorizontal: Spacing.four,
-    borderRadius: Spacing.three,
-    height: 44,
-  },
-  sendButtonText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 14,
+    justifyContent: "center",
   },
 });

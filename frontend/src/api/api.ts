@@ -106,7 +106,10 @@ export const api = {
     return res.json();
   },
 
-  async chat(preferences: ChatPreferences): Promise<{ reply: string }> {
+  async chat(preferences: ChatPreferences): Promise<{
+    reply: string;
+    patch?: Record<string, unknown> | null;
+  }> {
     const res = await request("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -156,4 +159,19 @@ export const api = {
     const res = await request("/report", { method: "POST", body: formData });
     return res.json();
   },
+
+  async listHazards(limit = 25): Promise<{ hazards: HazardReport[] }> {
+    const res = await request(`/hazards?limit=${limit}`);
+    return res.json();
+  },
+};
+
+export type HazardReport = {
+  id: number;
+  ts: number;
+  type: string;
+  lat: number;
+  lng: number;
+  description: string;
+  photo?: string | null;
 };
