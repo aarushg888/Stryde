@@ -642,9 +642,10 @@ const renderRoutesCard = () =>
           ) : null}
 
           {/* FAB trigger for the bottom sheet (mobile/narrow) */}
-          {!wide && !sheetOpen && !routes && !mapPickMode ? (
-            <TouchableOpacity
-              style={[styles.fab, styles.frostRow]}
+{!wide && !sheetOpen && !mapPickMode ? (
+  <TouchableOpacity
+    style={[styles.fab, styles.frostRow, routes && styles.fabWithRoutes]}
+  
               onPress={() => setSheetOpen(true)}
               activeOpacity={0.85}
             >
@@ -735,6 +736,9 @@ const styles = StyleSheet.create({
   },
   dot: { width: 12, height: 12, borderRadius: 6, marginLeft: 2 },
   input: { flex: 1, color: "#e2e8f0", fontSize: 15.5, paddingVertical: 0 },
+  fabWithRoutes: {
+  bottom: Spacing.four + 30 + 140,
+},
   suggestions: {
     backgroundColor: "rgba(13,17,22,0.98)",
     borderRadius: 13,
@@ -887,6 +891,7 @@ resultDockWide: {
     paddingVertical: 12,
     borderRadius: 999,
     backgroundColor: "#34d399",
+    zIndex: 999,
   },
   frostRow: { borderWidth: 0 },
   fabText: { color: "#0c1210", fontSize: 14, fontWeight: "800" },
