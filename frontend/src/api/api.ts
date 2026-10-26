@@ -12,15 +12,16 @@ import Constants from "expo-constants";
 const DEV_FALLBACK = "http://localhost:8100";
 const PREFS_KEY = "stryde:prefs";
 
-function resolveBaseUrl(): string {
-  const fromEnv = process.env.EXPO_PUBLIC_API_URL;
-  if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/+$/, "");
-  const host = Constants.expoConfig?.hostUri?.split(":")[0];
-  if (host && /^\d+\.\d+\.\d+\.\d+$/.test(host)) return `http://${host}:8100`;
-  return DEV_FALLBACK;
-}
+// function resolveBaseUrl(): string {
+//   const fromEnv = process.env.EXPO_PUBLIC_API_URL;
+//   if (fromEnv && fromEnv.length > 0) return fromEnv.replace(/\/+$/, "");
+//   const host = Constants.expoConfig?.hostUri?.split(":")[0];
+//   if (host && /^\d+\.\d+\.\d+\.\d+$/.test(host)) return `http://${host}:8100`;
+//   return DEV_FALLBACK;
+// }
 
-export const BASE_URL = resolveBaseUrl();
+// export const BASE_URL = resolveBaseUrl();
+export const BASE_URL = "/api"
 
 export type LatLng = { latitude: number; longitude: number };
 

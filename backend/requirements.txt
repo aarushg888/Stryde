@@ -1,11 +1,12 @@
-fastapi
+fastapi>=0.138.0   # app.frontend() was added in 0.138.0
 uvicorn[standard]
+python-multipart   # needed for Form / UploadFile routes
 Pillow
-pydantic
-typing
 pandas
 scipy
 numpy
-python-multipart
-osmnx
-matplotlib
+osmnx              # pulls in geopandas, shapely, networkx, requests
+matplotlib         # only if osm.py plots; otherwise remove
+
+# Only if you want /detect to actually run (large; needs more RAM than Render free tier):
+# ultralytics

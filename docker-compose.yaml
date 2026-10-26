@@ -1,0 +1,7 @@
+# Local test of the exact image Render will run:
+#   docker compose up --build   ->  http://localhost:8000
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"

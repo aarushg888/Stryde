@@ -1,6 +1,7 @@
 import heapq
 import json
 import math
+import os
 import pathlib
 import time
 import concurrent.futures
@@ -9,6 +10,7 @@ import csv
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import UnidentifiedImageError
+from fastapi.routing import APIRouter
 from pydantic import BaseModel, Field
 from typing import List
 import pandas as pd
@@ -19,7 +21,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO = ROOT  # backend/.. == repo root
 
 # --- Constants & Database Paths ---
+
 HAZARDS_DB = REPO / "data" / "user_hazards.csv"
+FRONTEND_DIR = REPO / "frontend" / "dist"
 # USER_PREFS = REPO / "data" / "user_prefs.json"
 cost_specs = [
     {   # safest
@@ -142,10 +146,12 @@ _MAX_UPLOAD = 10 * 1024 * 1024  # 10 MB (C1 contract)
 app = FastAPI(title="Stryde MVP API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=True,          # Allows cookies/auth headers
+    allow_methods=["*"],             # Allows all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],             # Allows all headers
 )
+app.frontend("/", directory=FRONTEND_DIR)
+api_router = APIRouter(prefix="/api")
 
 
 def _nearest_nodes(lat, lng, k: int = 6):
@@ -195,7 +201,7 @@ NO_PATH_NEARBY = (
     "to a covered corridor).")
 
 
-@app.get("/")
+@api_router.get("/")
 def root():
     return {"message": "Stryde MVP API",
             "routes": ["/search", "/coverage", "/detect", "/health", "/chat", "/report", "/hazards"]}
@@ -283,7 +289,7 @@ def apply_flag_scales(spec: dict, mode: str | None, prefer_sidewalks: bool,
     return copy
 
 
-@app.get("/search")
+@api_router.get("/search")
 async def search(
     start: str = Query(...),
     goal: str = Query(...),
@@ -396,10 +402,10 @@ def get_incident_score(ll,cost_spec):
             + nearby['FATAL_PEDESTRIAN'].sum() * cost_spec["fatal_pedestrian"])
     return val
 
-@app.get("/health")
+@api_router.get("/health")
 def health(): return {"ok": True, "weights": "detected", "coverage": ["demo"] }
 
-@app.post("/report")
+@api_router.post("/report")
 async def report_hazard(type: str = Form(...), lat: float = Form(...), lng: float = Form(...), description: str = Form(""), file: UploadFile = File(None)):
     ts = time.time()
     photo_path = None
@@ -413,7 +419,7 @@ async def report_hazard(type: str = Form(...), lat: float = Form(...), lng: floa
     return {"status": "reported", "id": int(ts)}
 
 
-@app.get("/hazards")
+@api_router.get("/hazards")
 def list_hazards(limit: int = 25):
     """Recent community hazard reports, newest first (photo path only)."""
     out = []
@@ -442,7 +448,7 @@ def list_hazards(limit: int = 25):
     out.reverse()
     return {"hazards": out}
 
-@app.post("/detect")
+@api_router.post("/detect")
 async def detect_endpoint(file: UploadFile = File(), conf: float = Form(0.25)):
     data = await file.read()
     try:
@@ -450,11 +456,11 @@ async def detect_endpoint(file: UploadFile = File(), conf: float = Form(0.25)):
         return {"detections": detect(data, conf=conf)}
     except Exception as e: raise HTTPException(status_code=503, detail=str(e))
 
-# @app.get("/preferences")
+# @api_router.get("/preferences")
 # def get_prefs():
 #     with open(USER_PREFS, 'r') as f: return json.load(f)
 
-# @app.post("/preferences")
+# @api_router.post("/preferences")
 # def set_prefs(prefs: dict):
 #     with open(USER_PREFS, 'w') as f: json.dump(prefs, f)
 #     return prefs
@@ -528,7 +534,7 @@ _INTENTS: list[tuple[tuple[str, ...], str, dict | None]] = [
 ]
 
 
-@app.post("/chat")
+@api_router.post("/chat")
 def chat(req: ChatRequest):
     text = req.message.strip().lower()
     if text:
@@ -543,3 +549,4 @@ def chat(req: ChatRequest):
                 ". Ask 'how do routes work?' to see the details.", "patch": None}
     return {"reply": "Ask me anything about Stryde - e.g. 'how do routes work?' "
             "(Your filters: " + _prefs_line(req) + ")", "patch": None}
+app.include_router(api_router)

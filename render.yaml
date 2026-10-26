@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: myapp
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    # envVars:
+    #   - key: SOME_SECRET
+    #     sync: false        # set the value in the Render dashboard
