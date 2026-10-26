@@ -1,6 +1,7 @@
 import { forwardRef, memo, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, Circle } from 'react-native-maps';
+import { MaterialIcons } from '@expo/vector-icons';
 import type {
   AppMapHandle,
   AppMapLatLng,
@@ -85,7 +86,7 @@ export const AppMap = memo(forwardRef<AppMapHandle, AppMapProps>(
           >
             {m.variant === 'note' ? (
               <View style={[styles.noteBadge, { borderColor: m.color }]}>
-                <Text style={styles.noteEmoji}>{m.emoji ?? '⚠️'}</Text>
+                <MaterialIcons name={(m.icon ?? 'warning') as keyof typeof MaterialIcons.glyphMap} size={15} color={m.color} />
               </View>
             ) : null}
           </Marker>
@@ -109,5 +110,4 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
   },
-  noteEmoji: { fontSize: 15 },
 });

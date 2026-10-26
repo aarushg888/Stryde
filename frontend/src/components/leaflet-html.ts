@@ -20,6 +20,7 @@ import type {
 
 const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
 const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+const ICONS_CSS = 'https://fonts.googleapis.com/icon?family=Material+Icons';
 const SATELLITE_URL =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const LABELS_URL =
@@ -44,7 +45,7 @@ export type LeafletBoot = {
     color: string;
     title?: string;
     description?: string;
-    emoji?: string;
+    icon?: string;
   }[];
 };
 
@@ -55,6 +56,7 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">',
     '<link rel="stylesheet" href="' + LEAFLET_CSS + '">',
+    '<link rel="stylesheet" href="' + ICONS_CSS + '">',
     '<style>',
     'html,body{height:100%;margin:0;padding:0;background:#131b21;}',
     '#map{height:100%;width:100%;background:#131b21;font-family:-apple-system,Roboto,sans-serif;}',
@@ -63,7 +65,8 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     'body.dark .leaflet-control-attribution{color:#8ea0b3;}',
     '.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#fff;border-radius:10px;}',
     '.stryde-pin{width:13px;height:13px;border-radius:50%;border:2.5px solid #ffffff;box-shadow:0 1px 5px rgba(5,12,18,0.55);}',
-    '.stryde-note{width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;background:#fff;border:2px solid rgba(240,190,60,0.95);box-shadow:0 1px 4px rgba(5,12,18,0.5);}',
+    '.stryde-note{width:26px;height:26px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:#fff;border:2px solid rgba(13,18,24,0.35);box-shadow:0 1px 4px rgba(5,12,18,0.5);}',
+    '.stryde-note .material-icons{font-size:15px;line-height:1;}',
     '</style>',
     '</head><body>',
     '<div id="map"></div>',
@@ -105,8 +108,8 @@ export function buildLeafletHtml(state: LeafletBoot): string {
     '  function setMarkers(markers){',
     '    markerLayer.clearLayers();',
     '    (markers || []).forEach(function(m){',
-    '      if (m.emoji){',
-    '        var icon = L.divIcon({className:"", html:"<div class=\'stryde-note\' title=\'" + (m.title||"") + "\'>" + m.emoji + "</div>", iconSize:[26,26], iconAnchor:[13,13]});',
+    '      if (m.icon){',
+    '        var icon = L.divIcon({className:"", html:"<div class=\'stryde-note\' title=\'" + (m.title||"") + "\'><span class=\'material-icons\' style=\'color:" + (m.color||"#94a3b8") + "\'>" + m.icon + "</span></div>", iconSize:[26,26], iconAnchor:[13,13]});',
     '        L.marker(m.point, {icon: icon}).addTo(markerLayer).bindPopup("<b>" + (m.title || "") + "</b>" + (m.description ? "<br>" + m.description : ""));',
     '      } else {',
     '        var icon = L.divIcon({className:"", html:"<div class=\'stryde-pin\' style=\'background:" + (m.color||"#22c55e") + "\'></div>", iconSize:[13,13], iconAnchor:[6.5,6.5]});',

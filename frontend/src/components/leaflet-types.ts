@@ -9,7 +9,7 @@ export type LeafletMarkerSpec = {
   title?: string;
   description?: string;
   variant?: 'pin' | 'note';
-  emoji?: string;
+  icon?: string;
 };
 
 export type LeafletRegion = {

@@ -14,10 +14,10 @@ export type AppMapMarkerSpec = {
   color: string;
   title?: string;
   description?: string;
-  /** 'pin' = start/destination marker; 'note' = small hazard badge (emoji chip). */
+  /** 'pin' = start/destination marker; 'note' = small hazard badge (icon chip). */
   variant?: 'pin' | 'note';
-  /** Emoji shown inside hazard badges (web) / custom markers (native). */
-  emoji?: string;
+  /** MaterialIcons glyph shown inside hazard badges (web) / custom markers (native). */
+  icon?: string;
 };
 
 export type AppMapEdgePadding = {

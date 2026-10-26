@@ -33,11 +33,17 @@ const ROUTE_META = [
   { title: "Shortest", subtitle: "highest risk", color: "#ef4444" },
 ] as const;
 const WALK_SPEED_KMH = 4.5;
-const HAZARD_EMOJI: Record<string, string> = {
-  Sidewalk: "♿",
-  Tree: "🌳",
-  Construction: "🚧",
-  Other: "❗",
+const HAZARD_ICONS: Record<string, string> = {
+  Sidewalk: "accessible",
+  Tree: "park",
+  Construction: "engineering",
+  Other: "more-horiz",
+};
+const HAZARD_COLORS: Record<string, string> = {
+  Sidewalk: "#38bdf8",
+  Tree: "#4ade80",
+  Construction: "#fbbf24",
+  Other: "#a78bfa",
 };
 
 type DrawerTab = "route" | "hazards" | "prefs";
@@ -271,11 +277,11 @@ export default function HomeScreen() {
     .slice(0, 60)
     .map((h, i) => ({
       coordinate: { latitude: h.lat, longitude: h.lng },
-      color: "rgba(240,190,60,0.95)",
+      color: HAZARD_COLORS[h.type] ?? "#94a3b8",
       title: h.type,
       description: h.description,
       variant: "note" as const,
-      emoji: HAZARD_EMOJI[h.type] ?? "❗",
+      icon: HAZARD_ICONS[h.type] ?? "warning",
       key: `hazard-${h.id}-${i}`,
     }));
 
