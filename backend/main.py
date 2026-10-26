@@ -17,6 +17,8 @@ import pandas as pd
 from scipy.spatial import KDTree
 import numpy as np
 import pickle
+import threading
+search_lock = threading.Lock()
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO = ROOT  # backend/.. == repo root
 
@@ -290,7 +292,7 @@ def apply_flag_scales(spec: dict, mode: str | None, prefer_sidewalks: bool,
 
 
 @api_router.get("/search")
-async def search(
+def search(                      # plain def, not async
     start: str = Query(...),
     goal: str = Query(...),
     mode: str | None = Query(None),
@@ -299,34 +301,21 @@ async def search(
     wellLitOnly: bool = Query(False),
     lowTraffic: bool = Query(False),
 ):
-    s_start = start.strip()
-    s_goal = goal.strip()
+    s_start, s_goal = start.strip(), goal.strip()
     s_cands = _resolve_candidates(s_start)
     g_cands = _resolve_candidates(s_goal)
     effective_specs = [
         apply_flag_scales(cs, mode, preferSidewalks, avoidObstacles, wellLitOnly, lowTraffic)
         for cs in cost_specs
     ]
-    loop = asyncio.get_running_loop()
-    tasks = []
-    final_paths = []
-    for cost_spec in effective_specs:
-        # result = cost_spec_caller(s_start, s_goal, s_cands, g_cands, cost_spec)
-        task = loop.run_in_executor(
-            executor, 
-            cost_spec_caller, 
-            s_start, s_goal, s_cands,g_cands,cost_spec
-        )
-        tasks.append(task)
-        # if result is not None:
-        #     final_paths.append(result)
-    final_paths = await asyncio.gather(*tasks)
+    with search_lock:            # one search at a time across requests
+        final_paths = [
+            cost_spec_caller(s_start, s_goal, s_cands, g_cands, cs)
+            for cs in effective_specs
+        ]
     if any(r is None for r in final_paths):
         raise HTTPException(status_code=404, detail=NO_PATH_NEARBY.format(start=start, goal=goal))
-    # return final_paths[0]
-    print("got paths: ", len(final_paths))
     return {"paths": final_paths}
-
 
 
 INCIDENTS_PATH = REPO / "data" / "Crashes_in_DC.csv"
